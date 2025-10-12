@@ -1,2 +1,20 @@
-# Ignore the auto-generated publish directory
+# IDE specific
+.idea/
+.vs/
+
+# Build output folders
 Publish/
+publish/
+buildPublish/
+
+# Project specific build outputs
+AcerSense/obj/
+AcerSense/bin/
+
+# Python daemon build outputs
+Daemon/build/
+Daemon/dist/
+
+# Ignored source/template directories
+/Linuwu-Sense/
+/build_template/
