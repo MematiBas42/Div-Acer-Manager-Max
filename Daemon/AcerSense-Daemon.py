@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# DAMX-Daemon - Manage Acer laptop features as root service communicating with Linuwu-sense drivers
+# AcerSense-Daemon - Manage Acer laptop features as root service communicating with Linuwu-sense drivers
 # Compatible with Predator and Nitro laptops
 
 import os
@@ -55,7 +55,7 @@ class LaptopType(Enum):
     PREDATOR = 1
     NITRO = 2
 
-class AcerSenseDaemon:
+class AcerSenseManager:
     """Manages all the daemon features"""
 
     MAX_RESTART_ATTEMPTS = 20
@@ -201,7 +201,7 @@ class AcerSenseDaemon:
         
 
     def _force_model_predator(self):
-        """Restart linuwu-sense driver and DAMX daemon service with nitro_v4 parameter"""
+        """Restart linuwu-sense driver and AcerSense daemon service with nitro_v4 parameter"""
         log.info("Forcing model detection to Nitro by restarting drivers and daemon")
 
         try:
@@ -220,8 +220,8 @@ class AcerSenseDaemon:
             time.sleep(3)
             
             # Restart the daemon service
-            log.info("Restarting DAMX daemon service (may produce an error)")
-            subprocess.run(['sudo', 'systemctl', 'restart', 'damx-daemon.service'], check=True)
+            log.info("Restarting AcerSense daemon service (may produce an error)")
+            subprocess.run(['sudo', 'systemctl', 'restart', 'acersense-daemon.service'], check=True)
             
             return True
         
@@ -230,7 +230,7 @@ class AcerSenseDaemon:
             return False
     
     def _force_enable_all(self):
-        """Restart linuwu-sense driver and DAMX daemon service with enable_all parameter"""
+        """Restart linuwu-sense driver and AcerSense daemon service with enable_all parameter"""
         log.info("Forcing all features by restarting daemon and drivers with parameter enable_all")
 
         try:
@@ -249,9 +249,9 @@ class AcerSenseDaemon:
             time.sleep(3)
             
             # Restart the daemon service
-            log.info("Restarting DAMX daemon service (may produce an error)")
-            subprocess.run(['sudo', 'systemctl', 'restart', 'damx-daemon.service'], check=True)
-            
+            log.info("Restarting AcerSense daemon service (may produce an error)")
+            subprocess.run(['sudo', 'systemctl', 'restart', 'acersense-daemon.service'], check=True)
+
             return True
         
         except Exception as e:
@@ -326,14 +326,14 @@ class AcerSenseDaemon:
         return self._restart_drivers_and_daemon()
         
     def _restart_daemon(self):
-        """Restart DAMX daemon service alone"""
+        """Restart AcerSense daemon service alone"""
         attempts = self._get_restart_attempts()
-        log.info(f"Attempting to restart daemon")
+        log.info(f"Attempting to restart AcerSense daemon")
         
         try:
             # Restart the daemon service
-            log.info("Restarting DAMX daemon service (may produce an error)")
-            subprocess.run(['sudo', 'systemctl', 'restart', 'damx-daemon.service'], check=True)
+            log.info("Restarting AcerSense daemon service (may produce an error)")
+            subprocess.run(['sudo', 'systemctl', 'restart', 'acersense-daemon.service'], check=True)
             
             return True
             
@@ -343,7 +343,7 @@ class AcerSenseDaemon:
             
 
     def _restart_drivers_and_daemon(self):
-        """Restart linuwu-sense driver and DAMX daemon service"""
+        """Restart linuwu-sense driver and AcerSense daemon service"""
         attempts = self._get_restart_attempts()
         log.info(f"Attempting to restart drivers and daemon (attempt {attempts}/{self.MAX_RESTART_ATTEMPTS})...")
         
@@ -363,9 +363,9 @@ class AcerSenseDaemon:
             time.sleep(3)
             
             # Restart the daemon service
-            log.info("Restarting DAMX daemon service (may produce an error)")
-            subprocess.run(['sudo', 'systemctl', 'restart', 'damx-daemon.service'], check=True)
-            
+            log.info("Restarting AcerSense daemon service (may produce an error)")
+            subprocess.run(['sudo', 'systemctl', 'restart', 'acersense-daemon.service'], check=True)
+
             return True
             
         except Exception as e:
@@ -805,7 +805,7 @@ class AcerSenseDaemon:
 class DaemonServer:
     """Unix Socket server for IPC with the GUI client"""
 
-    def __init__(self, manager: AcerSenseDaemon):
+    def __init__(self, manager: AcerSenseManager):
         self.manager = manager
         self.socket = None
         self.running = False
@@ -1255,26 +1255,26 @@ class DaemonServer:
                 if success:
                     return {
                         "success": True,
-                        "message": "Successfully restarted DAMX daemon"
+                        "message": "Successfully restarted AcerSense daemon"
                     }
                 else:
                     return {
                         "success": False,
-                        "error": "Failed to Restart DAMX daemon (Check logs for details)"
+                        "error": "Failed to Restart AcerSense daemon (Check logs for details)"
                     }           
 
             elif command == "restart_drivers_and_daemon":
-                # Restart linuwu-sense driver and DAMX daemon service
+                # Restart linuwu-sense driver and AcerSense daemon service
                 success = self.manager._restart_drivers_and_daemon()
                 if success:
                     return {
                         "success": True,
-                        "message": "Successfully restarted drivers and daemon"
+                        "message": "Successfully restarted drivers and AcerSense daemon"
                     }
                 else:
                     return {
                         "success": False,
-                        "error": "Failed to restart drivers and daemon"
+                        "error": "Failed to restart drivers and AcerSense daemon"
                     }
             
             elif command == "cycle_profile":
@@ -1368,7 +1368,7 @@ class DaemonServer:
             }
 
 
-class DAMXDaemon:
+class AcerSenseDaemon:
     """Main daemon class that manages the lifecycle"""
 
     def __init__(self):
@@ -1419,7 +1419,7 @@ class DAMXDaemon:
 
         try:
             # Initialize daemon manager
-            self.manager = AcerSenseDaemon()
+            self.manager = AcerSenseManager()
 
             # Initialize power monitor
             self.power_monitor = PowerSourceDetector(self.manager)
@@ -1510,8 +1510,8 @@ def signal_handler(self, sig, frame):
 def main():
     """Main function"""
     args = parse_args()
-    
-    log.info(f"Driver Version: {AcerSenseDaemon().get_driver_version()}")
+
+    log.info(f"Driver Version: {AcerSenseManager().get_driver_version()}")
 
     # Set log level based on verbosity
     if args.verbose:
@@ -1523,7 +1523,7 @@ def main():
     if args.config:
         CONFIG_PATH = args.config
 
-    daemon = DAMXDaemon()
+    daemon = AcerSenseDaemon()
     if daemon.setup():
         daemon.run()
     else:
