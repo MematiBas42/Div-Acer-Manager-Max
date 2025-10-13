@@ -107,7 +107,7 @@ You can also check the logs at /var/log/DAMX_Daemon_Log.log
 If you get UNKNOWN as Laptop type, try restarting (it happens somethings). 
 But if it still happenes that might mean the Drivers Installation failed, Make sure you have the approprite kernel headers to compile the drivers.
 
-Also, check out the [FAQ page](https://github.com/PXDiv/Div-Acer-Manager-Max/blob/main/FAQ.md) before opening any issues.
+Also, check out the [FAQ page](https://github.com/kleqing/AcerSense/blob/main/FAQ.md) before opening any issues.
 
 Please open a new issue or discussion and include the logs to get support and help the project grow if you need any info, report a bug or just give ideas for the future versions of DAMX
 
