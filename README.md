@@ -61,7 +61,7 @@
   - Real-time feedback from daemon
 
 ## 🧭 Compatibilty
-Please check the compatibility at here: [Compatibility List](https://github.com/PXDiv/Div-Acer-Manager-Max/blob/main/Compatibility.md)
+Please check the compatibility at here: [Compatibility List](https://github.com/kleqing/AcerSense/blob/main/Compatibility.md)
 
 > Note that the compatibility list may be out date if using this version because it comes with my custom linuwu-sense driver, not from the author!
 
