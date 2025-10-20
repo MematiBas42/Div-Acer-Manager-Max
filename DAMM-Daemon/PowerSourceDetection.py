@@ -97,30 +97,6 @@ class PowerSourceDetector:
             return False
 
     def _handle_power_change(self, is_plugged_in: bool):
-        """Handle power source changes"""
-        if not hasattr(self.manager, 'available_features') or "thermal_profile" not in self.manager.available_features:
-            return
-
-        current_profile = self.manager.get_thermal_profile()
-        available_profiles = self.manager.get_thermal_profile_choices()
-
-        if is_plugged_in:
-            # On AC power - no restrictions
-            log.info("Switched to AC power")
-        else:
-            # On battery power - enforce balanced or eco mode
-            log.info("Switched to battery power")
-
-            if current_profile not in ["balanced", "quiet", "power-saver"]:
-                # If current profile isn't battery-friendly, switch to balanced
-                if "balanced" in available_profiles:
-                    log.info("Auto-switching to balanced mode for battery power")
-                    self.manager.set_thermal_profile("balanced")
-                elif "quiet" in available_profiles:
-                    log.info("Auto-switching to quiet mode for battery power")
-                    self.manager.set_thermal_profile("quiet")
-                elif "power-saver" in available_profiles:
-                    log.info("Auto-switching to power-saver mode for battery power")
-                    self.manager.set_thermal_profile("power-saver")
-                else:
-                    log.warning("No battery-friendly thermal profile available")
+        """Handle power source changes by notifying the manager."""
+        log.info(f"Power source change detected. Plugged in: {is_plugged_in}")
+        self.manager.handle_power_change(is_plugged_in)

@@ -14,3 +14,6 @@ buildPublish/
 DAMM-Daemon/build/
 
 DAMM-Daemon/dist/
+
+# Setup and release files
+/setup/

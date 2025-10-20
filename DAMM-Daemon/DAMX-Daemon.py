@@ -15,6 +15,7 @@ import threading
 import signal
 import configparser
 import traceback
+import glob
 from pathlib import Path
 from enum import Enum
 from PowerSourceDetection import PowerSourceDetector 
@@ -104,6 +105,32 @@ class DAMXManager:
 
         # Available features set
         self.available_features = self._detect_available_features()
+        self.nos_active = False
+        self.previous_profile_for_nos = None
+        # Read the initial real state to prevent race conditions on start
+        self.last_known_profile = self.get_thermal_profile()
+
+        # Apply the correct default profile immediately and synchronously on startup
+        self._apply_initial_profile()
+
+    def _apply_initial_profile(self):
+        """Applies the default thermal profile based on the current power source at startup."""
+        log.info("Applying initial default thermal profile...")
+        try:
+            is_ac_online_path = next((p for p in ["/sys/class/power_supply/AC/online", "/sys/class/power_supply/ACAD/online", "/sys/class/power_supply/ADP1/online", "/sys/class/power_supply/AC0/online"] if os.path.exists(p)), None)
+            is_ac = self._read_file(is_ac_online_path) == "1" if is_ac_online_path else False
+            
+            profile_list = self.get_thermal_profile_choices()
+            target_profile = "quiet" if is_ac else "low-power"
+
+            if target_profile in profile_list:
+                log.info(f"Setting initial default profile to: {target_profile}")
+                self.set_thermal_profile(target_profile)
+            else:
+                log.warning(f"Initial default profile '{target_profile}' not available. Skipping.")
+        except Exception as e:
+            log.error(f"Failed to apply initial default profile: {e}")
+
 
         log.info(f"Detected laptop type: {self.laptop_type.name}")
         log.info(f"Base path: {self.base_path}")
@@ -458,7 +485,10 @@ class DAMXManager:
             log.error(f"Invalid thermal profile: {profile}. Available profiles: {available_profiles}")
             return False
 
-        return self._write_file("/sys/firmware/acpi/platform_profile", profile)
+        success = self._write_file("/sys/firmware/acpi/platform_profile", profile)
+        if success:
+            self.last_known_profile = profile # Update internal state immediately
+        return success
 
     def get_thermal_profile_choices(self) -> List[str]:
         """Get available thermal profiles"""
@@ -467,6 +497,23 @@ class DAMXManager:
 
         choices = self._read_file("/sys/firmware/acpi/platform_profile_choices")
         return choices.split() if choices else []
+
+    def handle_power_change(self, is_plugged_in: bool):
+        """Handles power source changes by setting the appropriate default thermal profile."""
+        log.info(f"Manager handling power change. Plugged in: {is_plugged_in}")
+        
+        profile_list = self.get_thermal_profile_choices()
+        
+        if is_plugged_in:
+            target_profile = "quiet"
+        else:
+            target_profile = "low-power"
+
+        if target_profile in profile_list:
+            log.info(f"Setting default profile to: {target_profile}")
+            self.set_thermal_profile(target_profile)
+        else:
+            log.warning(f"Default profile '{target_profile}' not available. Skipping auto-switch.")
 
     def get_backlight_timeout(self) -> str:
         """Get backlight timeout status"""
@@ -1231,6 +1278,83 @@ class DaemonServer:
                         "success": False,
                         "error": "Failed to restart drivers and daemon"
                     }
+            
+            elif command == "cycle_profile":
+                # Trust our internal state first to prevent race conditions
+                current_profile = self.manager.last_known_profile
+                
+                # Fallback to reading real state if internal state is missing
+                if not current_profile:
+                    current_profile = self.manager.get_thermal_profile()
+                
+                if not current_profile:
+                    return {"success": False, "error": "Could not read current thermal profile."}
+
+                is_ac_online_path = next((p for p in ["/sys/class/power_supply/AC/online", "/sys/class/power_supply/ACAD/online", "/sys/class/power_supply/ADP1/online", "/sys/class/power_supply/AC0/online"] if os.path.exists(p)), None)
+                is_ac = self.manager._read_file(is_ac_online_path) == "1" if is_ac_online_path else False
+                
+                all_profiles = self.manager.get_thermal_profile_choices()
+                profiles_ac = [p for p in all_profiles if p in ["quiet", "balanced", "balanced-performance"]]
+                profiles_battery = [p for p in all_profiles if p in ["low-power", "balanced"]]
+                profiles = profiles_ac if is_ac else profiles_battery
+                
+                if not profiles:
+                    return {"success": False, "error": "No profiles available for cycling."}
+
+                # Find current index based on the real profile
+                try:
+                    current_idx = profiles.index(current_profile)
+                except ValueError:
+                    # If current profile is not in the list (e.g. 'performance'), start from the beginning
+                    current_idx = -1
+                
+                next_idx = (current_idx + 1) % len(profiles)
+                next_profile = profiles[next_idx]
+
+                # --- Custom logic from shell script ---
+                if not is_ac and next_profile == "balanced":
+                    log.info(">> On-battery Balanced Mode: Applying custom CPU settings...")
+                    try:
+                        with open("/sys/devices/system/cpu/intel_pstate/no_turbo", 'w') as f:
+                            f.write("0")
+                        for policy_dir in glob.glob("/sys/devices/system/cpu/cpufreq/policy*"):
+                            if os.path.exists(f"{policy_dir}/scaling_governor"):
+                                with open(f"{policy_dir}/scaling_governor", 'w') as f:
+                                    f.write("performance")
+                            if os.path.exists(f"{policy_dir}/scaling_max_freq"):
+                                with open(f"{policy_dir}/scaling_max_freq", 'w') as f:
+                                    f.write("2100000")
+                    except IOError as e:
+                        log.error(f"Failed to apply custom battery-balanced settings: {e}")
+                else:
+                    log.info("Applying TLP default settings...")
+                    subprocess.run(["tlp", "start"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # --- End of custom logic ---
+
+                self.manager.set_thermal_profile(next_profile)
+                
+                return {"success": True, "data": {"new_profile": next_profile}}
+
+            elif command == "activate_nos":
+                if not self.manager.nos_active:
+                    self.manager.nos_active = True
+                    self.manager.previous_profile_for_nos = self.manager.get_thermal_profile()
+                    if "fan_speed" in self.manager.available_features:
+                        self.manager.set_fan_speed(100, 100)
+                    self.manager.set_thermal_profile("balanced-performance")
+                    return {"success": True, "message": "NOS Mode Activated"}
+                return {"success": False, "message": "NOS already active"}
+
+            elif command == "deactivate_nos":
+                if self.manager.nos_active:
+                    self.manager.nos_active = False
+                    if hasattr(self.manager, 'previous_profile_for_nos') and self.manager.previous_profile_for_nos:
+                        self.manager.set_thermal_profile(self.manager.previous_profile_for_nos)
+                    if "fan_speed" in self.manager.available_features:
+                        self.manager.set_fan_speed(0, 0) # Assuming 0 is auto, might need adjustment
+                    return {"success": True, "message": "NOS Mode Deactivated"}
+                return {"success": False, "message": "NOS not active"}
+
             else:
                 return {
                     "success": False,
