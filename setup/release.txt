@@ -1,0 +1,17 @@
+DAMX Release Information
+========================
+
+Project Version: 0.9.1
+Daemon Version: 0.4.6
+Drivers Version: 25.701
+
+Build Date: Wed Jul  2 07:09:40 UTC 2025
+Built on: Linux pkrvmbietmlfzoi 6.11.0-1015-azure #15~24.04.1-Ubuntu SMP Thu May  1 02:52:08 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux
+GitHub Run: 10
+Commit: a62d9021754a3c7c56c9422fef6ec662faee8f89
+
+Components:
+- DAMX-Daemon: Python daemon compiled with PyInstaller
+- DAMX-GUI: .NET 9.0 GUI application (self-contained)
+- Linuwu-Sense: Hardware drivers
+- setup.sh: Installation script
