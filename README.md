@@ -101,7 +101,7 @@ Please check the compatibility at here: [Compatibility List](https://github.com/
 
 Known issues: [Increase backlight keyboard](https://github.com/kleqing/Linuwu-Sense#%EF%B8%8F-known-issue-fn--f10-keyboard-backlight-key)
 
-You can also check the logs at /var/log/DAMX_Daemon_Log.log
+You can also check the logs at /var/log/AcerSenseDaemon.log
 
 If you get UNKNOWN as Laptop type, try restarting (it happens somethings). 
 But if it still happenes that might mean the Drivers Installation failed, Make sure you have the approprite kernel headers to compile the drivers.
