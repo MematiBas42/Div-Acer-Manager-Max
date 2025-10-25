@@ -19,17 +19,17 @@ class DAMXBuilder:
     def __init__(self):
         # Use the directory where the script is located
         script_path = Path(__file__).parent.absolute()
-        self.base_dir = script_path
-        self.daemon_dir = self.base_dir / "Div-Acer-Manager-Max" / "DAMM-Daemon"
-        self.gui_dir = self.base_dir / "Div-Acer-Manager-Max" / "DivAcerManagerMax"
-        self.drivers_dir = self.base_dir / "Div-Linuwu-Sense"
+        self.base_dir = script_path.parent # Project root is one level up
+        self.daemon_dir = self.base_dir / "DAMM-Daemon"
+        self.gui_dir = self.base_dir / "DivAcerManagerMax"
+        self.drivers_dir = self.base_dir / "setup" / "Linuwu-Sense"
         self.publish_dir = self.base_dir / "Publish"
-        self.setup_script = self.base_dir / "Setup.sh"
+        self.setup_script = self.base_dir / "setup" / "setup.sh"
         
         # Icon files to copy
         self.icon_files = [
             self.gui_dir / "icon.png",
-            Path("/home/div/Projects/Div-Acer-Manager-Max/DivAcerManagerMax/iconTransparent.png")
+            self.gui_dir / "iconTransparent.png"
         ]
         
         print(f"Script location: {script_path}")
@@ -410,14 +410,14 @@ Components:
         
         # Build components
         self.build_daemon()
-        self.build_gui()
+        # self.build_gui() # Skip GUI build as requested
         
         # Create package structure
         package_dir, daemon_target, gui_target, drivers_target = self.create_package_structure(versions['project'])
         
         # Copy all components
         self.copy_daemon_executable(daemon_target)
-        self.copy_gui_executable(gui_target)
+        # self.copy_gui_executable(gui_target) # Skip GUI copy as requested
         self.copy_drivers(drivers_target)
         
         # Update setup script and create release info
