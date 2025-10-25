@@ -1,19 +1,2 @@
-
-DivAcerManagerMax/obj/
-
-DivAcerManagerMax/bin/Release/net9.0/linux-x64/
-
-DivAcerManagerMax/bin/Debug/net9.0/
-
+# Ignore the auto-generated publish directory
 Publish/
-
-publish/
-
-buildPublish/
-
-DAMM-Daemon/build/
-
-DAMM-Daemon/dist/
-
-# Setup and release files
-/setup/
