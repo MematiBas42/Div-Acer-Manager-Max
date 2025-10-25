@@ -36,9 +36,10 @@ class ReleaseBuilder:
         self.project_root = Path(__file__).parent.absolute()
         self.gui_dir = self.project_root / "AcerSense"
         self.daemon_dir = self.project_root / "Daemon"
-        self.drivers_dir = self.project_root / "build_template" / "Linuwu-Sense"
+        self.drivers_dir = self.project_root / "Linuwu-Sense" # This will be the cloned directory
         self.template_dir = self.project_root / "build_template"
         self.publish_dir = self.project_root / "Publish"
+        self.drivers_repo_url = "https://github.com/kleqing/Linuwu-Sense"
 
         print(f"Project Root: {self.project_root}")
 
@@ -58,6 +59,14 @@ class ReleaseBuilder:
         print("Warning: Could not detect version. Using '1.0.0'.")
         return "1.0.0"
 
+    def update_drivers(self):
+        print("\n=== Updating Drivers ===")
+        if self.drivers_dir.exists():
+            print("Removing existing drivers directory...")
+            shutil.rmtree(self.drivers_dir)
+        print(f"Cloning latest drivers from {self.drivers_repo_url}...")
+        run_command(["git", "clone", self.drivers_repo_url, str(self.drivers_dir)])
+
     def build_gui(self):
         print("\n=== Building GUI ===")
         cmd = [
@@ -74,11 +83,7 @@ class ReleaseBuilder:
 
     def build_daemon(self):
         print("\n=== Building Daemon ===")
-        # Assuming the main script is named after the directory
-        daemon_script = self.daemon_dir / (self.daemon_dir.name + ".py")
-        if not daemon_script.exists(): # Fallback to common name
-            daemon_script = self.daemon_dir / "AcerSense-Daemon.py"
-        
+        daemon_script = self.daemon_dir / "AcerSense-Daemon.py"
         if not daemon_script.exists():
             print(f"Error: Could not find daemon script in {self.daemon_dir}")
             sys.exit(1)
@@ -105,7 +110,6 @@ class ReleaseBuilder:
         # 1. Copy GUI
         gui_source_dir = self.gui_dir / "bin/Release/net9.0/linux-x64/publish"
         shutil.copy2(gui_source_dir / "AcerSense", gui_target / "AcerSense")
-        # Copy icons if they exist
         for icon_name in ["icon.png", "iconTransparent.png"]:
             icon_path = self.gui_dir / icon_name
             if icon_path.exists():
@@ -113,7 +117,7 @@ class ReleaseBuilder:
         print("Copied GUI and icons.")
 
         # 2. Copy Daemon
-        daemon_executable_name = "AcerSense-Daemon"  # The actual name of the compiled executable
+        daemon_executable_name = "AcerSense-Daemon"
         shutil.copy2(self.daemon_dir / "dist" / daemon_executable_name, daemon_target / daemon_executable_name)
         print("Copied Daemon.")
 
@@ -127,7 +131,6 @@ class ReleaseBuilder:
             print(f"Error: setup.sh not found in {self.template_dir}")
             sys.exit(1)
         shutil.copy2(setup_script_path, package_dir)
-        # Make it executable
         (package_dir / "setup.sh").chmod(0o755)
         print("Copied setup script.")
 
@@ -146,6 +149,7 @@ Build Date: {subprocess.check_output(['date'], text=True).strip()}
 
 def main():
     builder = ReleaseBuilder()
+    builder.update_drivers()
     version = builder.get_version()
     builder.build_gui()
     builder.build_daemon()
