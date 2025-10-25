@@ -36,7 +36,7 @@ class ReleaseBuilder:
         self.project_root = Path(__file__).parent.absolute()
         self.gui_dir = self.project_root / "AcerSense"
         self.daemon_dir = self.project_root / "Daemon"
-        self.drivers_dir = self.project_root / "Linuwu-Sense"
+        self.drivers_dir = self.project_root / "build_template" / "Linuwu-Sense"
         self.template_dir = self.project_root / "build_template"
         self.publish_dir = self.project_root / "Publish"
 
