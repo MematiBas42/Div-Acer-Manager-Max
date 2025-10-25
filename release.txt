@@ -1,0 +1,15 @@
+DAMX Release Information
+========================
+
+Project Version: 0.9.1
+Daemon Version: 0.4.6
+Drivers Version: 25.701
+
+Build Date: Cts 25 Eki 2025 11:37:59 +03
+Built on: Linux omarchy 6.17.5-zen1-1-zen #1 ZEN SMP PREEMPT_DYNAMIC Thu, 23 Oct 2025 18:48:45 +0000 x86_64 GNU/Linux
+
+Components:
+- DAMX-Daemon: Python daemon compiled with PyInstaller
+- DAMX-GUI: .NET 9.0 GUI application (self-contained)
+- Linuwu-Sense: Hardware drivers
+- setup.sh: Installation script
