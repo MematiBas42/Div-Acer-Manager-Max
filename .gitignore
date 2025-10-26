@@ -16,5 +16,5 @@ Daemon/build/
 Daemon/dist/
 
 # Ignored source/template directories
+
 /Linuwu-Sense/
-/build_template/

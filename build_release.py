@@ -102,12 +102,17 @@ class ReleaseBuilder:
         print(f"Creating package structure in: {package_dir}")
         gui_target = package_dir / "DAMX-GUI"
         daemon_target = package_dir / "DAMX-Daemon"
-        drivers_target = package_dir / "Linuwu-Sense"
         
         gui_target.mkdir(parents=True)
         daemon_target.mkdir(parents=True)
 
-        # 1. Copy GUI
+        # 1. Fetch setup files from the 'setup' branch
+        print("Fetching release template files from 'setup' branch...")
+        run_command(["git", "archive", "--remote=.", "--format=tar", "-o", str(self.publish_dir / "template.tar"), "setup"])
+        shutil.unpack_archive(self.publish_dir / "template.tar", package_dir)
+        os.remove(self.publish_dir / "template.tar")
+
+        # 2. Copy GUI
         gui_source_dir = self.gui_dir / "bin/Release/net9.0/linux-x64/publish"
         shutil.copy2(gui_source_dir / "AcerSense", gui_target / "AcerSense")
         for icon_name in ["icon.png", "iconTransparent.png"]:
@@ -116,25 +121,22 @@ class ReleaseBuilder:
                 shutil.copy2(icon_path, gui_target)
         print("Copied GUI and icons.")
 
-        # 2. Copy Daemon
+        # 3. Copy Daemon
         daemon_executable_name = "AcerSense-Daemon"
         shutil.copy2(self.daemon_dir / "dist" / daemon_executable_name, daemon_target / daemon_executable_name)
         print("Copied Daemon.")
 
-        # 3. Copy Drivers
-        shutil.copytree(self.drivers_dir, drivers_target)
-        print("Copied Drivers.")
+        # 4. Drivers are now part of the fetched template, just ensure permissions
+        drivers_target = package_dir / "Linuwu-Sense"
+        if not drivers_target.exists():
+             print("Warning: Linuwu-Sense driver directory not found in setup branch template.")
+        print("Drivers included from setup branch.")
 
-        # 4. Copy setup script
-        setup_script_path = self.template_dir / "setup.sh"
-        if not setup_script_path.exists():
-            print(f"Error: setup.sh not found in {self.template_dir}")
-            sys.exit(1)
-        shutil.copy2(setup_script_path, package_dir)
+        # 5. Ensure setup script is executable
         (package_dir / "setup.sh").chmod(0o755)
-        print("Copied setup script.")
+        print("Checked setup script permissions.")
 
-        # 5. Create release.txt
+        # 6. Create release.txt
         release_info = f"""AcerSense Release Information
 ========================
 Version: {version}
