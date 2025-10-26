@@ -216,8 +216,8 @@ install_daemon() {
   mkdir -p ${INSTALL_DIR}/daemon
 
   # Copy daemon binary
-  cp -f DAMX-Daemon/DAMX-Daemon ${INSTALL_DIR}/daemon/
-  chmod +x ${INSTALL_DIR}/daemon/DAMX-Daemon
+  cp -f DAMX-Daemon/AcerSense-Daemon ${INSTALL_DIR}/daemon/
+  chmod 755 ${INSTALL_DIR}/daemon/AcerSense-Daemon
 
   # Create systemd service file with improved configuration
   cat > ${SYSTEMD_DIR}/${DAEMON_SERVICE_NAME} << EOL
@@ -227,7 +227,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=${INSTALL_DIR}/daemon/DAMX-Daemon
+ExecStart=${INSTALL_DIR}/daemon/AcerSense-Daemon
 Restart=on-failure
 RestartSec=5
 User=root
@@ -268,7 +268,7 @@ install_gui() {
 
   # Copy GUI files
   cp -rf DAMX-GUI/* ${INSTALL_DIR}/gui/
-  chmod +x ${INSTALL_DIR}/gui/DivAcerManagerMax
+  chmod 755 ${INSTALL_DIR}/gui/AcerSense
 
   # Create icon directory if it doesn't exist
   mkdir -p ${ICON_DIR}
@@ -281,20 +281,20 @@ install_gui() {
 [Desktop Entry]
 Name=DAMX
 Comment=Div Acer Manager Max
-Exec=${INSTALL_DIR}/gui/DivAcerManagerMax
+Exec=${INSTALL_DIR}/gui/AcerSense
 Icon=damx
 Terminal=false
 Type=Application
 Categories=Utility;System;
 Keywords=acer;laptop;system;
 EOL
+  chmod 644 ${DESKTOP_FILE_DIR}/damx.desktop
 
   # Create command shortcut
   cat > ${BIN_DIR}/DAMX << EOL
 #!/bin/bash
-${INSTALL_DIR}/gui/DivAcerManagerMax "\$@"
+${INSTALL_DIR}/gui/AcerSense "\$@"
 EOL
-  chmod +x ${BIN_DIR}/DAMX
 
   echo -e "${GREEN}DAMX-GUI installed successfully!${NC}"
   return 0
