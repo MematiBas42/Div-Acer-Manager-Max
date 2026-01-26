@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DivAcerManagerMax;
@@ -38,6 +39,104 @@ public class AcerSense : IDisposable
     }
 
     public bool IsConnected { get; private set; }
+
+    // Events
+    public event EventHandler<string> ThermalProfileChanged;
+    public event EventHandler<FanSpeedSettings> FanSpeedChanged;
+    public event EventHandler<bool> PowerStateChanged;
+
+    private Socket _eventSocket;
+    private bool _isListening;
+    private Task _listeningTask;
+    private CancellationTokenSource _cancellationTokenSource;
+
+    /// <summary>
+    /// Starts the background listener for daemon events
+    /// </summary>
+    public void StartListening()
+    {
+        if (_isListening) return;
+        _isListening = true;
+        _cancellationTokenSource = new CancellationTokenSource();
+        _listeningTask = Task.Run(() => ListenLoopAsync(_cancellationTokenSource.Token));
+    }
+
+    private async Task ListenLoopAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                // Create a dedicated socket for events
+                if (_eventSocket != null)
+                {
+                    try { _eventSocket.Dispose(); } catch { }
+                }
+
+                _eventSocket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.IP);
+                var endpoint = new UnixDomainSocketEndPoint(SocketPath);
+                
+                await _eventSocket.ConnectAsync(endpoint, token);
+                Console.WriteLine("Event listener connected.");
+
+                var buffer = new byte[4096];
+                
+                while (!token.IsCancellationRequested)
+                {
+                    var received = await _eventSocket.ReceiveAsync(buffer, SocketFlags.None, token);
+                    if (received == 0) break; // Disconnected
+
+                    var jsonString = Encoding.UTF8.GetString(buffer, 0, received);
+                    ProcessIncomingMessage(jsonString);
+                }
+            }
+            catch (Exception)
+            {
+                // Ignore disconnects, just retry after delay
+            }
+
+            // Wait before reconnecting
+            if (!token.IsCancellationRequested)
+                await Task.Delay(2000, token);
+        }
+    }
+
+    private void ProcessIncomingMessage(string json)
+    {
+        try
+        {
+            // The daemon might send multiple JSON objects stuck together or partials.
+            // For simplicity in this v1 implementation, we assume one event per packet 
+            // or handle simple cases. A robust buffer parser would be better for prod.
+            
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("type", out var typeProp) && 
+                typeProp.GetString() == "event")
+            {
+                var eventName = doc.RootElement.GetProperty("event").GetString();
+                var data = doc.RootElement.GetProperty("data");
+
+                switch (eventName)
+                {
+                    case "thermal_profile_changed":
+                        var profile = data.GetProperty("profile").GetString();
+                        ThermalProfileChanged?.Invoke(this, profile);
+                        break;
+                    case "fan_speed_changed":
+                        var fanData = JsonSerializer.Deserialize<FanSpeedSettings>(data.GetRawText());
+                        FanSpeedChanged?.Invoke(this, fanData);
+                        break;
+                    case "power_state_changed":
+                        // Implement if daemon sends this
+                        break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error processing event: {ex.Message}");
+        }
+    }
 
     public void Dispose()
     {

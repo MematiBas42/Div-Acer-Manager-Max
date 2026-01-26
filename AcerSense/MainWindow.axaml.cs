@@ -372,6 +372,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _balancedProfileButton.IsChecked = true;
     }
 
+using Avalonia.Threading;
+
     public async void InitializeAsync()
     {
         try
@@ -381,6 +383,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 _daemonErrorGrid.IsVisible = false;
                 await LoadSettingsAsync();
+                
+                // Start listening for events (Push Notification)
+                _client.ThermalProfileChanged += OnThermalProfileChanged;
+                _client.FanSpeedChanged += OnFanSpeedChanged;
+                _client.StartListening();
+                
                 await CheckForUpdatesAsync();
             }
             else
@@ -396,6 +404,36 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             await ShowMessageBox("Error while initializing", $"Error initializing: {ex.Message}");
             _daemonErrorGrid.IsVisible = true;
         }
+    }
+
+    private void OnThermalProfileChanged(object? sender, string profile)
+    {
+        Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (_settings.ThermalProfile != null)
+            {
+                _settings.ThermalProfile.Current = profile;
+                UpdateProfileButtons();
+            }
+        });
+    }
+
+    private void OnFanSpeedChanged(object? sender, FanSpeedSettings e)
+    {
+        Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (int.TryParse(e.Cpu, out var cpuSpeed))
+            {
+                if (_cpuFanSlider != null) _cpuFanSlider.Value = cpuSpeed;
+                if (_cpuFanTextBlock != null) _cpuFanTextBlock.Text = cpuSpeed == 0 ? "Auto" : $"{cpuSpeed}%";
+            }
+
+            if (int.TryParse(e.Gpu, out var gpuSpeed))
+            {
+                if (_gpuFanSlider != null) _gpuFanSlider.Value = gpuSpeed;
+                if (_gpuFanTextBlock != null) _gpuFanTextBlock.Text = gpuSpeed == 0 ? "Auto" : $"{gpuSpeed}%";
+            }
+        });
     }
 
     private async Task CheckForUpdatesAsync()
