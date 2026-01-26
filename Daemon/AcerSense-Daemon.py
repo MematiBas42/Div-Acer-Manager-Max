@@ -67,6 +67,7 @@ class AcerSenseManager:
         log.info(f"** Starting AcerSense daemon v{VERSION} **")
         
         self.event_callback = None  # Callback for async broadcast
+        self._last_fan_speeds = (0, 0)
 
         # Check if linuwu_sense is installed
         if not os.path.exists("/sys/module/linuwu_sense"):
@@ -127,6 +128,31 @@ class AcerSenseManager:
                 self.event_callback(event_type, data)
             except Exception as e:
                 log.error(f"Error in event callback: {e}")
+
+    async def _background_status_monitor(self):
+        """Monitor hardware state for external changes (BIOS/Physical Buttons)"""
+        log.info("Background hardware status monitor started.")
+        while True:
+            try:
+                # 1. Check Profile
+                current_profile = self.get_thermal_profile()
+                if current_profile and current_profile != self.last_known_profile:
+                    log.info(f"Hardware profile change detected: {self.last_known_profile} -> {current_profile}")
+                    self.last_known_profile = current_profile
+                    self._update_hyprland_visuals(current_profile)
+                    self._notify_event("thermal_profile_changed", {"profile": current_profile})
+
+                # 2. Check Fan Speeds
+                if "fan_speed" in self.available_features:
+                    cpu, gpu = self.get_fan_speed()
+                    if (cpu, gpu) != self._last_fan_speeds:
+                        self._last_fan_speeds = (cpu, gpu)
+                        self._notify_event("fan_speed_changed", {"cpu": str(cpu), "gpu": str(gpu)})
+
+            except Exception as e:
+                log.error(f"Error in background monitor: {e}")
+            
+            await asyncio.sleep(2) # Check every 2 seconds
 
     def _load_defaults(self):
         """Load default profile preferences and opacity settings from config"""
@@ -1067,6 +1093,9 @@ class AcerSenseManager:
         """Handles power source changes by setting the appropriate default thermal profile."""
         log.info(f"Manager handling power change. Plugged in: {is_plugged_in}")
         
+        # Broadcast event to GUI
+        self._notify_event("power_state_changed", {"plugged_in": is_plugged_in})
+        
         profile_list = self.get_thermal_profile_choices()
         
         if is_plugged_in:
@@ -1512,6 +1541,9 @@ class DaemonServer:
         
         self.manager.register_event_callback(sync_callback)
 
+        # Start hardware background monitor
+        asyncio.create_task(self.manager._background_status_monitor())
+
         # Remove socket if it already exists
         try:
             if os.path.exists(SOCKET_PATH):
@@ -1526,20 +1558,10 @@ class DaemonServer:
                 self.handle_client, path=SOCKET_PATH
             )
             
-            # --- Security: Socket Permissions ---
-            # Get the GID of the real user who invoked sudo (or current user)
-            sudo_user = os.environ.get('SUDO_USER')
-            if sudo_user:
-                try:
-                    uid = pwd.getpwnam(sudo_user).pw_uid
-                    gid = pwd.getpwnam(sudo_user).pw_gid
-                    os.chown(SOCKET_PATH, -1, gid) # Change group to user's group
-                    log.info(f"Socket group ownership set to GID: {gid} ({sudo_user})")
-                except KeyError:
-                    log.warning(f"Could not find SUDO_USER: {sudo_user}")
-            
-            # Set permissions to 660 (User/Group RW, Others None)
-            os.chmod(SOCKET_PATH, 0o660)
+            # Ensure socket permissions allow user access
+            # We use 666 because getting the correct user GID from a systemd service 
+            # context is complex without configuration.
+            os.chmod(SOCKET_PATH, 0o666)
             
             log.info(f"Async Server listening on {SOCKET_PATH}")
             

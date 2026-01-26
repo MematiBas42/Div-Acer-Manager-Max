@@ -25,13 +25,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         { "lcd", "LCD" },
         { "usb", "USB" }
-        // Add other special cases here
     };
 
     private readonly string _effectColor = "#0078D7";
     private readonly string ProjectVersion = "1.0";
 
-    // UI Controls (will be bound via NameScope)
+    // UI Controls
     private Button _applyKeyboardColorsButton;
     private RadioButton _autoFanSpeedRadioButton;
     private CheckBox _backlightTimeoutCheckBox;
@@ -43,6 +42,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private Slider _cpuFanSlider;
     private int _cpuFanSpeed = 50;
     private TextBlock _cpuFanTextBlock;
+    private Dashboard _dashboardView;
     private Grid _daemonErrorGrid;
     private TextBlock _daemonVersionText;
     private TextBlock _driverVersionText;
@@ -86,7 +86,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private RadioButton _maxFanSpeedRadioButton;
     private TextBlock _modelNameText;
     private RadioButton _performanceProfileButton;
-    private PowerSourceDetection _powerDetection;
     private ToggleSwitch _powerToggleSwitch;
     private RadioButton _quietProfileButton;
     private Button _setManualSpeedButton;
@@ -206,57 +205,39 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _guiVersionTextBlock = nameScope.Find<TextBlock>("ProjectVersionText");
         _daemonErrorGrid = nameScope.Find<Grid>("DaemonErrorGrid");
         _linuxKernelVersionText = nameScope.Find<TextBlock>("LinuxKernelVersionText");
+        _dashboardView = nameScope.Find<Dashboard>("DashboardView");
 
-        // Set initial GUI version
         if (_guiVersionTextBlock != null)
             _guiVersionTextBlock.Text = $"{ProjectVersion}";
     }
 
     private void AttachEventHandlers()
     {
-        // Thermal Profile handlers
         if (_lowPowerProfileButton != null) _lowPowerProfileButton.IsCheckedChanged += ProfileButton_Checked;
         if (_quietProfileButton != null) _quietProfileButton.IsCheckedChanged += ProfileButton_Checked;
         if (_balancedProfileButton != null) _balancedProfileButton.IsCheckedChanged += ProfileButton_Checked;
         if (_performanceProfileButton != null) _performanceProfileButton.IsCheckedChanged += ProfileButton_Checked;
         if (_turboProfileButton != null) _turboProfileButton.IsCheckedChanged += ProfileButton_Checked;
 
-        // Power toggle switch
-        if (_powerToggleSwitch != null)
-        {
-            _powerDetection = new PowerSourceDetection(_powerToggleSwitch);
-            _powerToggleSwitch.PropertyChanged += (s, args) =>
-            {
-                if (args.Property.Name == "IsChecked") UpdateUIBasedOnPowerSource();
-            };
-            UpdateUIBasedOnPowerSource();
-        }
-
         if (_defaultAcProfileComboBox != null) _defaultAcProfileComboBox.SelectionChanged += DefaultProfile_SelectionChanged;
         if (_defaultBatProfileComboBox != null) _defaultBatProfileComboBox.SelectionChanged += DefaultProfile_SelectionChanged;
 
-        // Fan control handlers
         if (_manualFanSpeedRadioButton != null) _manualFanSpeedRadioButton.Click += ManualFanControlRadioBox_Click;
         if (_cpuFanSlider != null) _cpuFanSlider.PropertyChanged += CpuFanSlider_ValueChanged;
         if (_gpuFanSlider != null) _gpuFanSlider.PropertyChanged += GpuFanSlider_ValueChanged;
         if (_autoFanSpeedRadioButton != null) _autoFanSpeedRadioButton.Click += AutoFanSpeedRadioButtonClick;
         if (_setManualSpeedButton != null) _setManualSpeedButton.Click += SetManualSpeedButton_OnClick;
 
-        // Battery calibration handlers
         if (_startCalibrationButton != null) _startCalibrationButton.Click += StartCalibrationButton_Click;
         if (_stopCalibrationButton != null) _stopCalibrationButton.Click += StopCalibrationButton_Click;
         if (_batteryLimitCheckBox != null) _batteryLimitCheckBox.Click += BatteryLimitCheckBox_Click;
 
-
-        // Keyboard lighting handlers
         if (_keyBrightnessSlider != null) _keyBrightnessSlider.PropertyChanged += KeyboardBrightnessSlider_ValueChanged;
         if (_applyKeyboardColorsButton != null) _applyKeyboardColorsButton.Click += ApplyKeyboardColorsButton_Click;
 
-        // Lighting effects handlers
         if (_lightingSpeedSlider != null) _lightingSpeedSlider.PropertyChanged += LightingSpeedSlider_ValueChanged;
         if (_lightingEffectsApplyButton != null) _lightingEffectsApplyButton.Click += LightingEffectsApplyButton_Click;
 
-        // System settings handlers
         if (_backlightTimeoutCheckBox != null) _backlightTimeoutCheckBox.Click += BacklightTimeoutCheckBox_Click;
         if (_lcdOverrideCheckBox != null) _lcdOverrideCheckBox.Click += LcdOverrideCheckBox_Click;
         if (_hyprlandIntegrationToggleSwitch != null)
@@ -339,7 +320,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 lcdControls.IsVisible = _client.IsFeatureAvailable("lcd_override") || AppState.DevMode;
 
             if (hyprlandControls != null)
-                hyprlandControls.IsVisible = true; // Always available as it is a software feature
+                hyprlandControls.IsVisible = true; 
 
             if (bootSoundControls != null)
                 bootSoundControls.IsVisible = _client.IsFeatureAvailable("boot_animation_sound") || AppState.DevMode;
@@ -383,9 +364,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 _daemonErrorGrid.IsVisible = false;
                 await LoadSettingsAsync();
                 
-                // Start listening for events (Push Notification)
+                // Set client for dashboard (event system)
+                if (_dashboardView != null) _dashboardView.SetClient(_client);
+
+                // Event-Driven: Subscribe to events
                 _client.ThermalProfileChanged += OnThermalProfileChanged;
                 _client.FanSpeedChanged += OnFanSpeedChanged;
+                _client.PowerStateChanged += OnPowerStateChanged;
+                
+                // Start listening for broadcast events
                 _client.StartListening();
                 
                 await CheckForUpdatesAsync();
@@ -405,6 +392,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
+    // Event Handlers
     private void OnThermalProfileChanged(object? sender, string profile)
     {
         Dispatcher.UIThread.InvokeAsync(() =>
@@ -435,14 +423,24 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         });
     }
 
+    private void OnPowerStateChanged(object? sender, bool isPluggedIn)
+    {
+        Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (_powerToggleSwitch != null)
+            {
+                _powerToggleSwitch.IsChecked = isPluggedIn;
+                // Note: IsChecked change will trigger UpdateUIBasedOnPowerSource via existing handler
+            }
+        });
+    }
+
     private async Task CheckForUpdatesAsync()
     {
         try
         {
             using var client = new HttpClient();
             client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("AcerSense", ProjectVersion));
-            
-            // Set timeout to avoid blocking startup for too long
             client.Timeout = TimeSpan.FromSeconds(5);
 
             var response = await client.GetAsync("https://api.github.com/repos/MematiBas42/Div-Acer-Manager-Max/releases/latest");
@@ -471,7 +469,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
         catch
         {
-            // Fail silently on startup
+            // Fail silently
         }
     }
 
@@ -498,25 +496,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var profileConfigs =
             new Dictionary<string, (RadioButton button, string description, bool showOnBattery, bool showOnAC)>
             {
-                {
-                    "low-power",
-                    (_lowPowerProfileButton,
-                        "Prioritizes energy efficiency, reduces performance to extend battery life.", true, false)
-                },
+                { "low-power", (_lowPowerProfileButton, "Prioritizes energy efficiency, reduces performance to extend battery life.", true, false) },
                 { "quiet", (_quietProfileButton, "Minimizes noise, prioritizes low power and cooling.", false, true) },
-                {
-                    "balanced",
-                    (_balancedProfileButton, "Optimal mix of performance and noise for everyday tasks.", true, true)
-                },
-                {
-                    "balanced-performance",
-                    (_performanceProfileButton, "Maximizes speed for demanding workloads, higher fan noise", false,
-                        true)
-                },
-                {
-                    "performance",
-                    (_turboProfileButton, "Unleashes peak power for extreme tasks, loudest fans.", false, true)
-                }
+                { "balanced", (_balancedProfileButton, "Optimal mix of performance and noise for everyday tasks.", true, true) },
+                { "balanced-performance", (_performanceProfileButton, "Maximizes speed for demanding workloads, higher fan noise", false, true) },
+                { "performance", (_turboProfileButton, "Unleashes peak power for extreme tasks, loudest fans.", false, true) }
             };
 
         foreach (var config in profileConfigs.Values)
@@ -542,7 +526,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var currentProfileKey = _settings.ThermalProfile.Current.ToLower();
             if (profileConfigs.TryGetValue(currentProfileKey, out var config) && config.button?.IsEnabled == true)
             {
+                // Temporarily remove event handler to prevent loops
+                config.button.IsCheckedChanged -= ProfileButton_Checked;
                 config.button.IsChecked = true;
+                config.button.IsCheckedChanged += ProfileButton_Checked;
+
                 if (_thermalProfileInfoText != null)
                     _thermalProfileInfoText.Text = config.description;
             }
@@ -553,7 +541,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         UpdateProfileButtons();
 
-        // Dynamically populate default profile comboboxes
         if (_defaultAcProfileComboBox != null && _defaultBatProfileComboBox != null && _settings.ThermalProfile != null)
         {
             var acItems = new List<ComboBoxItem>();
@@ -571,14 +558,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     _ => char.ToUpper(profile[0]) + profile.Substring(1)
                 };
 
-                var acItem = new ComboBoxItem { Content = displayName, Tag = profile };
-                var batItem = new ComboBoxItem { Content = displayName, Tag = profile };
-                
-                acItems.Add(acItem);
-                batItems.Add(batItem);
+                acItems.Add(new ComboBoxItem { Content = displayName, Tag = profile });
+                batItems.Add(new ComboBoxItem { Content = displayName, Tag = profile });
             }
 
-            // Temporarily detach events to prevent triggering selection change
             _defaultAcProfileComboBox.SelectionChanged -= DefaultProfile_SelectionChanged;
             _defaultBatProfileComboBox.SelectionChanged -= DefaultProfile_SelectionChanged;
 
@@ -588,24 +571,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             foreach (var item in acItems) _defaultAcProfileComboBox.Items.Add(item);
             foreach (var item in batItems) _defaultBatProfileComboBox.Items.Add(item);
 
-            // Select current defaults
-            _defaultAcProfileComboBox.SelectedItem = _defaultAcProfileComboBox.Items
-                .OfType<ComboBoxItem>().FirstOrDefault(i => i.Tag?.ToString() == _settings.DefaultAcProfile);
-            
-            _defaultBatProfileComboBox.SelectedItem = _defaultBatProfileComboBox.Items
-                .OfType<ComboBoxItem>().FirstOrDefault(i => i.Tag?.ToString() == _settings.DefaultBatProfile);
+            _defaultAcProfileComboBox.SelectedItem = _defaultAcProfileComboBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => i.Tag?.ToString() == _settings.DefaultAcProfile);
+            _defaultBatProfileComboBox.SelectedItem = _defaultBatProfileComboBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => i.Tag?.ToString() == _settings.DefaultBatProfile);
 
             _defaultAcProfileComboBox.SelectionChanged += DefaultProfile_SelectionChanged;
             _defaultBatProfileComboBox.SelectionChanged += DefaultProfile_SelectionChanged;
         }
 
         if (_backlightTimeoutCheckBox != null)
-            _backlightTimeoutCheckBox.IsChecked =
-                (_settings.BacklightTimeout ?? "0").Equals("1", StringComparison.OrdinalIgnoreCase);
+            _backlightTimeoutCheckBox.IsChecked = (_settings.BacklightTimeout ?? "0").Equals("1", StringComparison.OrdinalIgnoreCase);
 
         if (_batteryLimitCheckBox != null)
-            _batteryLimitCheckBox.IsChecked =
-                (_settings.BatteryLimiter ?? "0").Equals("1", StringComparison.OrdinalIgnoreCase);
+            _batteryLimitCheckBox.IsChecked = (_settings.BatteryLimiter ?? "0").Equals("1", StringComparison.OrdinalIgnoreCase);
 
         var isCalibrating = (_settings.BatteryCalibration ?? "0").Equals("1", StringComparison.OrdinalIgnoreCase);
         IsCalibrating = isCalibrating;
@@ -615,12 +592,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _calibrationStatusTextBlock.Text = isCalibrating ? "Status: Calibrating" : "Status: Not calibrating";
 
         if (_bootAnimAndSoundCheckBox != null)
-            _bootAnimAndSoundCheckBox.IsChecked =
-                (_settings.BootAnimationSound ?? "0").Equals("1", StringComparison.OrdinalIgnoreCase);
+            _bootAnimAndSoundCheckBox.IsChecked = (_settings.BootAnimationSound ?? "0").Equals("1", StringComparison.OrdinalIgnoreCase);
 
         if (_lcdOverrideCheckBox != null)
-            _lcdOverrideCheckBox.IsChecked =
-                (_settings.LcdOverride ?? "0").Equals("1", StringComparison.OrdinalIgnoreCase);
+            _lcdOverrideCheckBox.IsChecked = (_settings.LcdOverride ?? "0").Equals("1", StringComparison.OrdinalIgnoreCase);
 
         if (_hyprlandIntegrationToggleSwitch != null)
             _hyprlandIntegrationToggleSwitch.IsChecked = _settings.HyprlandIntegration;
@@ -630,7 +605,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (_batActiveOpacitySlider != null) _batActiveOpacitySlider.Value = _settings.BatActiveOpacity;
         if (_batInactiveOpacitySlider != null) _batInactiveOpacitySlider.Value = _settings.BatInactiveOpacity;
 
-        // Text blocks will update via PropertyChanged event, or we can force set them here
         if (_acActiveOpacityText != null) _acActiveOpacityText.Text = $"{_settings.AcActiveOpacity:F2}";
         if (_acInactiveOpacityText != null) _acInactiveOpacityText.Text = $"{_settings.AcInactiveOpacity:F2}";
         if (_batActiveOpacityText != null) _batActiveOpacityText.Text = $"{_settings.BatActiveOpacity:F2}";
@@ -651,23 +625,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (int.TryParse(_settings.FanSpeed?.Cpu ?? "0", out var cpuSpeed))
         {
             _cpuFanSpeed = cpuSpeed;
-            if (_cpuFanSlider != null)
-            {
-                _cpuFanSlider.Value = cpuSpeed;
-                if (_cpuFanTextBlock != null)
-                    _cpuFanTextBlock.Text = cpuSpeed == 0 ? "Auto" : $"{cpuSpeed}%";
-            }
+            if (_cpuFanSlider != null) _cpuFanSlider.Value = cpuSpeed;
+            if (_cpuFanTextBlock != null) _cpuFanTextBlock.Text = cpuSpeed == 0 ? "Auto" : $"{cpuSpeed}%";
         }
 
         if (int.TryParse(_settings.FanSpeed?.Gpu ?? "0", out var gpuSpeed))
         {
             _gpuFanSpeed = gpuSpeed;
-            if (_gpuFanSlider != null)
-            {
-                _gpuFanSlider.Value = gpuSpeed;
-                if (_gpuFanTextBlock != null)
-                    _gpuFanTextBlock.Text = gpuSpeed == 0 ? "Auto" : $"{gpuSpeed}%";
-            }
+            if (_gpuFanSlider != null) _gpuFanSlider.Value = gpuSpeed;
+            if (_gpuFanTextBlock != null) _gpuFanTextBlock.Text = gpuSpeed == 0 ? "Auto" : $"{gpuSpeed}%";
         }
 
         var isManualMode = cpuSpeed > 0 || gpuSpeed > 0;
@@ -677,38 +643,24 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         ApplyKeyboardSettings();
 
-        if (_lightEffectColorPicker != null)
-            _lightEffectColorPicker.Color = Color.Parse(_effectColor);
-
-        if (_keyBrightnessText != null)
-            _keyBrightnessText.Text = $"{_keyboardBrightness}%";
-
-        if (_lightSpeedTextBlock != null)
-            _lightSpeedTextBlock.Text = _lightingSpeed.ToString();
-
-        if (_daemonVersionText != null)
-            _daemonVersionText.Text = $"{_settings.Version}";
-
-        if (_driverVersionText != null)
-            _driverVersionText.Text = $"{_settings.DriverVersion}";
+        if (_lightEffectColorPicker != null) _lightEffectColorPicker.Color = Color.Parse(_effectColor);
+        if (_keyBrightnessText != null) _keyBrightnessText.Text = $"{_keyboardBrightness}%";
+        if (_lightSpeedTextBlock != null) _lightSpeedTextBlock.Text = _lightingSpeed.ToString();
+        if (_daemonVersionText != null) _daemonVersionText.Text = $"{_settings.Version}";
+        if (_driverVersionText != null) _driverVersionText.Text = $"{_settings.DriverVersion}";
 
         if (_laptopTypeText != null)
         {
             var type = _settings.LaptopType;
             if (!string.IsNullOrEmpty(type)) type = char.ToUpper(type[0]) + type.Substring(1).ToLower();
-
             _laptopTypeText.Text = type;
         }
-
 
         if (_supportedFeaturesTextBlock != null)
             _supportedFeaturesTextBlock.Text = string.Join(", ", _settings.AvailableFeatures.Select(FormatFeatureName));
 
-        if (_modelNameText != null)
-            _modelNameText.Text = $"Acer {GetLinuxLaptopModel()}";
-
-        if (_linuxKernelVersionText != null)
-            _linuxKernelVersionText.Text = $"Linux {GetLinuxKernelVersion()}";
+        if (_modelNameText != null) _modelNameText.Text = $"Acer {GetLinuxLaptopModel()}";
+        if (_linuxKernelVersionText != null) _linuxKernelVersionText.Text = $"Linux {GetLinuxKernelVersion()}";
 
         UpdateUIElementVisibility();
     }
@@ -733,34 +685,31 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             process?.WaitForExit();
             return process?.StandardOutput.ReadToEnd().Trim() ?? "Unknown";
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error getting laptop model: {ex.Message}");
-            return "Unknown";
-        }
+        catch { return "Unknown"; }
     }
 
     private string GetLinuxKernelVersion()
     {
-        var getKernel = new ProcessStartInfo
-        {
-            FileName = "/bin/bash",
-            Arguments = "-c \" uname -r\"",
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-        using var process = Process.Start(getKernel);
-        process?.WaitForExit();
-        return process?.StandardOutput.ReadToEnd().Trim() ?? "Unknown";
+        try {
+            var getKernel = new ProcessStartInfo
+            {
+                FileName = "uname",
+                Arguments = "-r",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var process = Process.Start(getKernel);
+            process?.WaitForExit();
+            return process?.StandardOutput.ReadToEnd().Trim() ?? "Unknown";
+        } catch { return "Unknown"; }
     }
 
     private void ApplyKeyboardSettings()
     {
         if (_settings.HasFourZoneKb)
         {
-            // TODO: Parse and apply the keyboard lighting settings from
-            // _settings.PerZoneMode and _settings.FourZoneMode
+            // TODO: Parse settings
         }
     }
 
@@ -778,8 +727,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public void EnableDevMode(bool toEnable)
     {
         AppState.DevMode = toEnable;
-        if (_powerToggleSwitch != null)
-            _powerToggleSwitch.IsHitTestVisible = toEnable;
+        if (_powerToggleSwitch != null) _powerToggleSwitch.IsHitTestVisible = toEnable;
         ApplySettingsToUI();
     }
 
@@ -790,20 +738,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void UpdateButton_OnClick(object? sender, RoutedEventArgs e)
     {
-        Process.Start(new ProcessStartInfo("xdg-open", "https://github.com/MematiBas42/Div-Acer-Manager-Max/releases")
-            { UseShellExecute = true });
-    }
-
-    private void StarProject_OnClick(object? sender, RoutedEventArgs e)
-    {
-        Process.Start(new ProcessStartInfo("xdg-open", "https://github.com/MematiBas42/Div-Acer-Manager-Max")
-            { UseShellExecute = true });
+        Process.Start(new ProcessStartInfo("xdg-open", "https://github.com/MematiBas42/Div-Acer-Manager-Max/releases") { UseShellExecute = true });
     }
 
     private void IssuePageButton_OnClick(object? sender, RoutedEventArgs e)
     {
-        Process.Start(new ProcessStartInfo("xdg-open", "https://github.com/MematiBas42/Div-Acer-Manager-Max/issues")
-            { UseShellExecute = true });
+        Process.Start(new ProcessStartInfo("xdg-open", "https://github.com/MematiBas42/Div-Acer-Manager-Max/issues") { UseShellExecute = true });
     }
 
     private void InternalsMangerWindow_OnClick(object? sender, RoutedEventArgs e)
@@ -811,7 +751,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var internalsManagerWindow = new InternalsManager(this);
         internalsManagerWindow.ShowDialog(this);
     }
-
 
     private async void ProfileButton_Checked(object sender, RoutedEventArgs e)
     {
@@ -829,20 +768,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         await _client.SetThermalProfileAsync(profile);
 
+        // UI update will happen via Event, but we can optimistically update UI text here too
         if (profile == "quiet")
         {
             await _client.SetFanSpeedAsync(0, 0);
             _isManualFanControl = false;
             if (!AppState.DevMode)
             {
-                if (_manualFanSpeedRadioButton != null) _manualFanSpeedRadioButton.IsChecked = false;
+                if (_manualFanSpeedRadioButton != null) { _manualFanSpeedRadioButton.IsChecked = false; _manualFanSpeedRadioButton.IsEnabled = false; }
                 if (_autoFanSpeedRadioButton != null) _autoFanSpeedRadioButton.IsChecked = true;
-                if (_manualFanSpeedRadioButton != null) _manualFanSpeedRadioButton.IsEnabled = false;
                 if (_maxFanSpeedRadioButton != null) _maxFanSpeedRadioButton.IsEnabled = false;
             }
-
-            if (_thermalProfileInfoText != null)
-                _thermalProfileInfoText.Text = "Minimizes noise, prioritizes low power and cooling.";
+            if (_thermalProfileInfoText != null) _thermalProfileInfoText.Text = "Minimizes noise, prioritizes low power and cooling.";
         }
         else
         {
@@ -858,22 +795,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     _ => _thermalProfileInfoText.Text
                 };
         }
-
-        await Task.Delay(1000);
-        await LoadSettingsAsync();
     }
 
     private async void DefaultProfile_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (!_isConnected || sender is not ComboBox comboBox || comboBox.SelectedItem is not ComboBoxItem item) return;
-
         var source = comboBox.Name == "DefaultAcProfileComboBox" ? "ac" : "bat";
         var profile = item.Tag?.ToString();
-
-        if (!string.IsNullOrEmpty(profile))
-        {
-            await _client.SetDefaultProfilePreferenceAsync(source, profile);
-        }
+        if (!string.IsNullOrEmpty(profile)) await _client.SetDefaultProfilePreferenceAsync(source, profile);
     }
 
     private void ManualFanControlRadioBox_Click(object sender, RoutedEventArgs e)
@@ -888,8 +817,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (e.Property == Slider.ValueProperty)
         {
             _cpuFanSpeed = Convert.ToInt32(e.NewValue);
-            if (_cpuFanTextBlock != null)
-                _cpuFanTextBlock.Text = _cpuFanSpeed == 0 ? "Auto" : $"{_cpuFanSpeed}%";
+            if (_cpuFanTextBlock != null) _cpuFanTextBlock.Text = _cpuFanSpeed == 0 ? "Auto" : $"{_cpuFanSpeed}%";
         }
     }
 
@@ -898,15 +826,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (e.Property == Slider.ValueProperty)
         {
             _gpuFanSpeed = Convert.ToInt32(e.NewValue);
-            if (_gpuFanTextBlock != null)
-                _gpuFanTextBlock.Text = _gpuFanSpeed == 0 ? "Auto" : $"{_gpuFanSpeed}%";
+            if (_gpuFanTextBlock != null) _gpuFanTextBlock.Text = _gpuFanSpeed == 0 ? "Auto" : $"{_gpuFanSpeed}%";
         }
     }
 
     private async void SetManualSpeedButton_OnClick(object sender, RoutedEventArgs e)
     {
-        if (_isConnected)
-            await _client.SetFanSpeedAsync(_cpuFanSpeed, _gpuFanSpeed);
+        if (_isConnected) await _client.SetFanSpeedAsync(_cpuFanSpeed, _gpuFanSpeed);
     }
 
     private async void AutoFanSpeedRadioButtonClick(object sender, RoutedEventArgs e)
@@ -916,14 +842,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             await _client.SetFanSpeedAsync(0, 0);
             _isManualFanControl = false;
             if (_manualFanSpeedRadioButton != null) _manualFanSpeedRadioButton.IsChecked = false;
-            await LoadSettingsAsync();
         }
     }
 
     private async void MaxFanSpeedRadioButton_OnClick(object? sender, RoutedEventArgs e)
     {
-        if (_isConnected)
-            await _client.SetFanSpeedAsync(100, 100);
+        if (_isConnected) await _client.SetFanSpeedAsync(100, 100);
     }
 
     private async void StartCalibrationButton_Click(object sender, RoutedEventArgs e)
@@ -950,8 +874,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async void BatteryLimitCheckBox_Click(object sender, RoutedEventArgs e)
     {
-        if (_isConnected && sender is CheckBox checkBox)
-            await _client.SetBatteryLimiterAsync(checkBox.IsChecked ?? false);
+        if (_isConnected && sender is CheckBox checkBox) await _client.SetBatteryLimiterAsync(checkBox.IsChecked ?? false);
     }
 
     private void KeyboardBrightnessSlider_ValueChanged(object sender, AvaloniaPropertyChangedEventArgs e)
@@ -959,8 +882,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (e.Property == Slider.ValueProperty)
         {
             _keyboardBrightness = Convert.ToInt32(e.NewValue);
-            if (_keyBrightnessText != null)
-                _keyBrightnessText.Text = $"{_keyboardBrightness}%";
+            if (_keyBrightnessText != null) _keyBrightnessText.Text = $"{_keyboardBrightness}%";
         }
     }
 
@@ -981,8 +903,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (e.Property == Slider.ValueProperty)
         {
             _lightingSpeed = Convert.ToInt32(e.NewValue);
-            if (_lightSpeedTextBlock != null)
-                _lightSpeedTextBlock.Text = _lightingSpeed.ToString();
+            if (_lightSpeedTextBlock != null) _lightSpeedTextBlock.Text = _lightingSpeed.ToString();
         }
     }
 
@@ -994,28 +915,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var direction = _leftToRightRadioButton?.IsChecked == true ? 1 : 2;
             var color = _lightEffectColorPicker?.Color ?? Color.Parse(_effectColor);
 
-            await _client.SetFourZoneModeAsync(
-                mode,
-                _lightingSpeed,
-                _keyboardBrightness,
-                direction,
-                color.R,
-                color.G,
-                color.B
-            );
+            await _client.SetFourZoneModeAsync(mode, _lightingSpeed, _keyboardBrightness, direction, color.R, color.G, color.B);
         }
     }
 
     private async void BacklightTimeoutCheckBox_Click(object sender, RoutedEventArgs e)
     {
-        if (_isConnected && sender is CheckBox checkBox)
-            await _client.SetBacklightTimeoutAsync(checkBox.IsChecked ?? false);
+        if (_isConnected && sender is CheckBox checkBox) await _client.SetBacklightTimeoutAsync(checkBox.IsChecked ?? false);
     }
 
     private async void LcdOverrideCheckBox_Click(object sender, RoutedEventArgs e)
     {
-        if (_isConnected && sender is CheckBox checkBox)
-            await _client.SetLcdOverrideAsync(checkBox.IsChecked ?? false);
+        if (_isConnected && sender is CheckBox checkBox) await _client.SetLcdOverrideAsync(checkBox.IsChecked ?? false);
     }
 
     private async void HyprlandIntegration_Toggled(object? sender, AvaloniaPropertyChangedEventArgs e)
@@ -1053,21 +964,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async void BootSoundCheckBox_Click(object sender, RoutedEventArgs e)
     {
-        if (_isConnected && sender is CheckBox checkBox)
-            await _client.SetBootAnimationSoundAsync(checkBox.IsChecked ?? false);
+        if (_isConnected && sender is CheckBox checkBox) await _client.SetBootAnimationSoundAsync(checkBox.IsChecked ?? false);
     }
 
     private async void UsbChargingComboBox_OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_isConnected && _usbChargingComboBox != null)
         {
-            var level = _usbChargingComboBox.SelectedIndex switch
-            {
-                1 => 10,
-                2 => 20,
-                3 => 30,
-                _ => 0
-            };
+            var level = _usbChargingComboBox.SelectedIndex switch { 1 => 10, 2 => 20, 3 => 30, _ => 0 };
             await _client.SetUsbChargingAsync(level);
         }
     }
@@ -1081,54 +985,32 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 var content = File.ReadAllText(fourZone).Trim();
                 var parts = content.Split(',');
-                if (parts.Length > 0)
+                if (parts.Length > 0 && int.TryParse(parts.Last().Trim(), out var brightness))
                 {
-                    var brightnessStr = parts.Last().Trim();
-                    if (int.TryParse(brightnessStr, out var brightness))
-                    {
-                        var slider = this.FindControl<Slider>("KeyBrightnessSlider");
-                        if (slider != null) slider.Value = brightness;
-                    }
+                    var slider = this.FindControl<Slider>("KeyBrightnessSlider");
+                    if (slider != null) slider.Value = brightness;
                 }
             }
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error loading keyboard brighness: {ex.Message}");
-        }
+        catch { }
     }
 
     private string FormatFeatureName(string featureName)
     {
-        if (string.IsNullOrEmpty(featureName))
-            return string.Empty;
-
+        if (string.IsNullOrEmpty(featureName)) return string.Empty;
         var parts = featureName.Split('_');
         var formattedParts = new List<string>();
-
         foreach (var part in parts)
-            if (_specialFormatText.TryGetValue(part, out var format))
-                formattedParts.Add(format);
-            else
-                formattedParts.Add(char.ToUpper(part[0]) + part.Substring(1));
-
+            if (_specialFormatText.TryGetValue(part, out var format)) formattedParts.Add(format);
+            else formattedParts.Add(char.ToUpper(part[0]) + part.Substring(1));
         return string.Join(" ", formattedParts);
     }
 
-    public static class AppState
-    {
-        public static bool DevMode { get; set; }
-    }
+    public static class AppState { public static bool DevMode { get; set; } }
 
     #region INotifyPropertyChanged
-
     public event PropertyChangedEventHandler PropertyChanged;
-
-    protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
-
+    protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     protected bool SetField<T>(ref T field, T value, [CallerMemberName] string propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value)) return false;
@@ -1136,6 +1018,5 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         OnPropertyChanged(propertyName);
         return true;
     }
-
     #endregion
 }
