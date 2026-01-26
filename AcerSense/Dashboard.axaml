@@ -152,7 +152,7 @@
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="20" Margin="10">
                         <Grid RowDefinitions="Auto, Auto, Auto" HorizontalAlignment="Center">
                             <TextBlock Grid.Row="0" Text="CPU Fan" Opacity="0.7" HorizontalAlignment="Center" />
-                            <TextBlock Grid.Row="1" x:Name="CpuFanSpeed" Text="2400 RPM" FontWeight="SemiBold"
+                            <TextBlock Grid.Row="1" x:Name="CpuFanSpeed" Text="{Binding CpuFanSpeedRPM, StringFormat='{}{0} RPM'}" FontWeight="SemiBold"
                                        HorizontalAlignment="Center" />
                             <!-- CPU Fan Animation -->
                             <material:MaterialIcon Grid.Row="2" x:Name="CpuFanIcon" Classes="FanIcon" Kind="Fan"
@@ -162,7 +162,7 @@
 
                         <Grid RowDefinitions="Auto, Auto, Auto" HorizontalAlignment="Center" Margin="30, 0, 0, 0">
                             <TextBlock Grid.Row="0" Text="GPU Fan" Opacity="0.7" HorizontalAlignment="Center" />
-                            <TextBlock Grid.Row="1" x:Name="GpuFanSpeed" Text="2400 RPM" FontWeight="SemiBold"
+                            <TextBlock Grid.Row="1" x:Name="GpuFanSpeed" Text="{Binding GpuFanSpeedRPM, StringFormat='{}{0} RPM'}" FontWeight="SemiBold"
                                        HorizontalAlignment="Center" />
                             <!-- GPU Fan Animation -->
                             <material:MaterialIcon Grid.Row="2" x:Name="GpuFanIcon" Classes="FanIcon" Kind="Fan"

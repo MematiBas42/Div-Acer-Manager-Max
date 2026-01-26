@@ -24,16 +24,16 @@ public class AcerSense : IDisposable
     private HashSet<string> _availableFeatures = new();
 
     private bool _disposed;
-    private Socket _socket;
-    private Socket _eventSocket;
+    private Socket? _socket;
+    private Socket? _eventSocket;
     private bool _isListening;
-    private Task _listeningTask;
-    private CancellationTokenSource _cancellationTokenSource;
+    private Task? _listeningTask;
+    private CancellationTokenSource? _cancellationTokenSource;
 
     // Events
-    public event EventHandler<string> ThermalProfileChanged;
-    public event EventHandler<FanSpeedSettings> FanSpeedChanged;
-    public event EventHandler<bool> PowerStateChanged;
+    public event EventHandler<string>? ThermalProfileChanged;
+    public event EventHandler<FanSpeedSettings>? FanSpeedChanged;
+    public event EventHandler<bool>? PowerStateChanged;
 
     public AcerSense()
     {
@@ -105,11 +105,11 @@ public class AcerSense : IDisposable
                 {
                     case "thermal_profile_changed":
                         var profile = data.GetProperty("profile").GetString();
-                        ThermalProfileChanged?.Invoke(this, profile);
+                        if (profile != null) ThermalProfileChanged?.Invoke(this, profile);
                         break;
                     case "fan_speed_changed":
                         var fanData = JsonSerializer.Deserialize<FanSpeedSettings>(data.GetRawText());
-                        FanSpeedChanged?.Invoke(this, fanData);
+                        if (fanData != null) FanSpeedChanged?.Invoke(this, fanData);
                         break;
                     case "power_state_changed":
                         var isAc = data.GetProperty("plugged_in").GetBoolean();
@@ -174,7 +174,9 @@ public class AcerSense : IDisposable
                 _availableFeatures.Clear();
                 foreach (var feature in features.EnumerateArray())
                 {
-                    _availableFeatures.Add(FormatFeatureName(feature.GetString()));
+                    var name = feature.GetString();
+                    if (name != null)
+                        _availableFeatures.Add(FormatFeatureName(name));
                 }
             }
         }
@@ -190,7 +192,7 @@ public class AcerSense : IDisposable
         }
     }
 
-    public async Task<JsonDocument> SendCommandAsync(string command, Dictionary<string, object> parameters = null)
+    public async Task<JsonDocument> SendCommandAsync(string command, Dictionary<string, object>? parameters = null)
     {
         var attempt = 0;
         while (attempt < MaxRetryAttempts)
@@ -202,6 +204,7 @@ public class AcerSense : IDisposable
                 var request = new { command, @params = parameters ?? new Dictionary<string, object>() };
                 var requestBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(request) + "\n");
 
+                if (_socket == null) throw new IOException("Socket is null");
                 await _socket.SendAsync(requestBytes, SocketFlags.None);
 
                 using var stream = new NetworkStream(_socket, false);
@@ -226,9 +229,9 @@ public class AcerSense : IDisposable
         {
             var data = response.RootElement.GetProperty("data");
             var settings = JsonSerializer.Deserialize<AcerSenseSettings>(data.GetRawText());
-            if (settings.AvailableFeatures != null)
+            if (settings?.AvailableFeatures != null)
                 _availableFeatures = new HashSet<string>(settings.AvailableFeatures);
-            return settings;
+            return settings ?? new AcerSenseSettings();
         }
         throw new Exception("Failed to get settings");
     }
@@ -365,6 +368,7 @@ public class AcerSenseSettings
     [JsonPropertyName("battery_limiter")] public string BatteryLimiter { get; set; } = "0";
     [JsonPropertyName("boot_animation_sound")] public string BootAnimationSound { get; set; } = "0";
     [JsonPropertyName("fan_speed")] public FanSpeedSettings FanSpeed { get; set; } = new();
+    [JsonPropertyName("fan_rpms")] public FanSpeedSettings FanRpms { get; set; } = new();
     [JsonPropertyName("lcd_override")] public string LcdOverride { get; set; } = "0";
     [JsonPropertyName("usb_charging")] public string UsbCharging { get; set; } = "0";
     [JsonPropertyName("per_zone_mode")] public string PerZoneMode { get; set; } = "";

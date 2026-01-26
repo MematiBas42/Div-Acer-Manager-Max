@@ -10,7 +10,12 @@ namespace DivAcerManagerMax;
 public partial class InternalsManager : Window
 {
     private const string logPath = "/var/log/AcerSenseDaemon.log";
-    private readonly MainWindow _mainWindow;
+    private readonly MainWindow? _mainWindow;
+
+    public InternalsManager()
+    {
+        InitializeComponent();
+    }
 
     public InternalsManager(MainWindow mainWindow)
     {
@@ -21,6 +26,7 @@ public partial class InternalsManager : Window
 
     public void InitializeUiComponents()
     {
+        if (_mainWindow == null) return;
         DevModeToggleSwitch.IsChecked = MainWindow.AppState.DevMode;
 
         ForceParameterPermanentlyComboBox.SelectedIndex = _mainWindow._settings.ModprobeParameter switch
@@ -34,12 +40,12 @@ public partial class InternalsManager : Window
 
     private void DevModeSwitch_OnClick(object? sender, RoutedEventArgs e)
     {
-        _mainWindow.EnableDevMode(DevModeToggleSwitch.IsChecked == true);
+        _mainWindow?.EnableDevMode(DevModeToggleSwitch.IsChecked == true);
     }
 
     public void ReinitializeAcerSenseGUI()
     {
-        _mainWindow.InitializeAsync();
+        _mainWindow?.InitializeAsync();
     }
 
     private void DaemonLogsButton_OnClick(object? sender, RoutedEventArgs e)
@@ -50,32 +56,35 @@ public partial class InternalsManager : Window
 
     private async void RestartSuiteButton_OnClick(object? sender, RoutedEventArgs e)
     {
-        if (_mainWindow._client.IsConnected) _mainWindow._client.SendCommandAsync("restart_drivers_and_daemon");
+        if (_mainWindow?._client != null && _mainWindow._client.IsConnected) 
+            await _mainWindow._client.SendCommandAsync("restart_drivers_and_daemon");
         Console.WriteLine("Restart suite command sent");
         await Task.Delay(1000);
 
         ReinitializeAcerSenseGUI();
 
-        ShowMessagebox("Restarting Suite", "Restarting Suite and refreshing GUI, please wait");
+        await ShowMessagebox("Restarting Suite", "Restarting Suite and refreshing GUI, please wait");
     }
 
 
     private async void ForcePredatorButton_OnClick(object? sender, RoutedEventArgs e)
     {
-        if (_mainWindow._client.IsConnected) _mainWindow._client.SendCommandAsync("force_predator_model");
+        if (_mainWindow?._client != null && _mainWindow._client.IsConnected) 
+            await _mainWindow._client.SendCommandAsync("force_predator_model");
         Console.WriteLine("Force Predator Model Command Sent");
         await Task.Delay(1000);
         ReinitializeAcerSenseGUI();
-        ShowMessagebox("Forcing Predator Model",
+        await ShowMessagebox("Forcing Predator Model",
             "Restarting Drivers with predator_v4 parameter with daemon and refreshing GUI, please wait");
     }
 
     private async void ForceNitroButton_OnClick(object? sender, RoutedEventArgs e)
     {
-        if (_mainWindow._client.IsConnected) _mainWindow._client.SendCommandAsync("force_nitro_model");
+        if (_mainWindow?._client != null && _mainWindow._client.IsConnected) 
+            await _mainWindow._client.SendCommandAsync("force_nitro_model");
         Console.WriteLine("Force Nitro Model Command Sent");
         await Task.Delay(1000);
-        ShowMessagebox("Forcing Nitro Model",
+        await ShowMessagebox("Forcing Nitro Model",
             "Restarting Drivers with nitro_v4 parameter with daemon and refreshing GUI, please wait");
         ReinitializeAcerSenseGUI();
     }
@@ -83,13 +92,14 @@ public partial class InternalsManager : Window
 
     private async void RestartDaemon_OnClick(object? sender, RoutedEventArgs e)
     {
-        if (_mainWindow._client.IsConnected) _mainWindow._client.SendCommandAsync("restart_daemon");
+        if (_mainWindow?._client != null && _mainWindow._client.IsConnected) 
+            await _mainWindow._client.SendCommandAsync("restart_daemon");
         Console.WriteLine("restart_daemon Command Sent");
 
         await Task.Delay(1000);
         ReinitializeAcerSenseGUI();
 
-        ShowMessagebox("Restarting Daemon",
+        await ShowMessagebox("Restarting Daemon",
             "Restarting Daemon refreshing GUI, please wait");
     }
 
@@ -99,15 +109,16 @@ public partial class InternalsManager : Window
             .GetMessageBoxStandard(title, message);
 
 
-        var result = await box.ShowWindowDialogAsync(this);
+        await box.ShowWindowDialogAsync(this);
     }
 
     private async void ForceEnableAll_OnClick(object? sender, RoutedEventArgs e)
     {
-        if (_mainWindow._client.IsConnected) _mainWindow._client.SendCommandAsync("force_enable_all");
+        if (_mainWindow?._client != null && _mainWindow._client.IsConnected) 
+            await _mainWindow._client.SendCommandAsync("force_enable_all");
         Console.WriteLine("Force Enable All Features Command Sent");
         await Task.Delay(1000);
-        ShowMessagebox("Forcing All Features",
+        await ShowMessagebox("Forcing All Features",
             "Initializing Drivers with enable_all parameter. Restarting daemon and refreshing GUI, please wait");
         ReinitializeAcerSenseGUI();
     }
@@ -140,8 +151,9 @@ public partial class InternalsManager : Window
         }
     }
 
-    public async void SendCommand(string? command)
+    public async void SendCommand(string command)
     {
-        if (_mainWindow._client.IsConnected) _mainWindow._client.SendCommandAsync(command);
+        if (_mainWindow?._client != null && _mainWindow._client.IsConnected) 
+            await _mainWindow._client.SendCommandAsync(command);
     }
 }

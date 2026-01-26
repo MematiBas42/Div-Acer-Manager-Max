@@ -138,29 +138,6 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- Default Profiles -->
-                            <Border Classes="Card" x:Name="DefaultProfilePanel">
-                                <StackPanel>
-                                    <TextBlock Text="Default Profiles" Classes="SubHeader" />
-                                    <TextBlock Text="Choose which profile to activate automatically when power source changes"
-                                               Opacity="0.7" Margin="0 0 0 10" />
-
-                                    <Grid ColumnDefinitions="*,*" Margin="0 10">
-                                        <StackPanel Grid.Column="0" Margin="0 0 10 0">
-                                            <TextBlock Text="On AC Power:" Margin="0 0 0 5" />
-                                            <ComboBox x:Name="DefaultAcProfileComboBox" HorizontalAlignment="Stretch">
-                                            </ComboBox>
-                                        </StackPanel>
-
-                                        <StackPanel Grid.Column="1" Margin="10 0 0 0">
-                                            <TextBlock Text="On Battery:" Margin="0 0 0 5" />
-                                            <ComboBox x:Name="DefaultBatProfileComboBox" HorizontalAlignment="Stretch">
-                                            </ComboBox>
-                                        </StackPanel>
-                                    </Grid>
-                                </StackPanel>
-                            </Border>
-
                             <!-- Fan Speed Control -->
                             <Border Classes="Card" x:Name="FanControlPanel">
                                 <StackPanel>
@@ -208,14 +185,14 @@
                                               Margin="0 5">
                                             <TextBlock Grid.Row="0" Grid.Column="0" Text="CPU Fan:"
                                                        VerticalAlignment="Center" Width="80" />
-                                            <Slider x:Name="CpuFanSlider" Grid.Row="0" Grid.Column="1" Value="50" />
+                                            <Slider x:Name="CpuFanSlider" Grid.Row="0" Grid.Column="1" Value="50" Minimum="20" Maximum="100" />
                                             <TextBlock x:Name="CpuFanTextBlock" Grid.Row="0" Grid.Column="2"
                                                        Text="50%"
                                                        Width="50" TextAlignment="Right" />
 
                                             <TextBlock Grid.Row="1" Grid.Column="0" Text="GPU Fan:"
                                                        VerticalAlignment="Center" Width="80" Margin="0 15 0 0" />
-                                            <Slider x:Name="GpuFanSlider" Grid.Row="1" Grid.Column="1" Value="70"
+                                            <Slider x:Name="GpuFanSlider" Grid.Row="1" Grid.Column="1" Value="70" Minimum="20" Maximum="100"
                                                     Margin="0 15 0 0" />
                                             <TextBlock x:Name="GpuFanTextBlock" Grid.Row="1" Grid.Column="2"
                                                        Text="70%"
@@ -725,6 +702,29 @@
                                     </Grid>
 
                                     <Button x:Name="ApplyOpacityButton" Content="Apply Settings" HorizontalAlignment="Right" Margin="0 10 0 0" Click="ApplyOpacityButton_OnClick"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Default Profiles -->
+                            <Border Classes="Card" x:Name="DefaultProfilePanel">
+                                <StackPanel>
+                                    <TextBlock Text="Default Profiles" Classes="SubHeader" />
+                                    <TextBlock Text="Choose which profile to activate automatically when power source changes"
+                                               Opacity="0.7" Margin="0 0 0 10" />
+
+                                    <Grid ColumnDefinitions="*,*" Margin="0 10">
+                                        <StackPanel Grid.Column="0" Margin="0 0 10 0">
+                                            <TextBlock Text="On AC Power:" Margin="0 0 0 5" />
+                                            <ComboBox x:Name="DefaultAcProfileComboBox" HorizontalAlignment="Stretch">
+                                            </ComboBox>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="1" Margin="10 0 0 0">
+                                            <TextBlock Text="On Battery:" Margin="0 0 0 5" />
+                                            <ComboBox x:Name="DefaultBatProfileComboBox" HorizontalAlignment="Stretch">
+                                            </ComboBox>
+                                        </StackPanel>
+                                    </Grid>
                                 </StackPanel>
                             </Border>
                         </StackPanel>

@@ -109,6 +109,7 @@ class AcerSenseManager:
         self.available_features = self._detect_available_features()
         self.nos_active = False
         self.previous_profile_for_nos = None
+        self._last_power_change_time = 0
         # Read the initial real state to prevent race conditions on start
         self.last_known_profile = self.get_thermal_profile()
 
@@ -129,30 +130,22 @@ class AcerSenseManager:
             except Exception as e:
                 log.error(f"Error in event callback: {e}")
 
-    async def _background_status_monitor(self):
-        """Monitor hardware state for external changes (BIOS/Physical Buttons)"""
-        log.info("Background hardware status monitor started.")
-        while True:
-            try:
-                # 1. Check Profile
-                current_profile = self.get_thermal_profile()
-                if current_profile and current_profile != self.last_known_profile:
-                    log.info(f"Hardware profile change detected: {self.last_known_profile} -> {current_profile}")
-                    self.last_known_profile = current_profile
-                    self._update_hyprland_visuals(current_profile)
-                    self._notify_event("thermal_profile_changed", {"profile": current_profile})
-
-                # 2. Check Fan Speeds
+    def handle_hardware_event(self):
+        """Handle profile changes triggered by physical buttons (Fn+F) detected via Netlink"""
+        try:
+            current_profile = self.get_thermal_profile()
+            if current_profile and current_profile != self.last_known_profile:
+                log.info(f"Hardware profile change detected via Netlink: {self.last_known_profile} -> {current_profile}")
+                self.last_known_profile = current_profile
+                self._update_hyprland_visuals(current_profile)
+                self._notify_event("thermal_profile_changed", {"profile": current_profile})
+                
+                # Also notify fan speeds once as they usually change with profile
                 if "fan_speed" in self.available_features:
                     cpu, gpu = self.get_fan_speed()
-                    if (cpu, gpu) != self._last_fan_speeds:
-                        self._last_fan_speeds = (cpu, gpu)
-                        self._notify_event("fan_speed_changed", {"cpu": str(cpu), "gpu": str(gpu)})
-
-            except Exception as e:
-                log.error(f"Error in background monitor: {e}")
-            
-            await asyncio.sleep(2) # Check every 2 seconds
+                    self._notify_event("fan_speed_changed", {"cpu": str(cpu), "gpu": str(gpu)})
+        except Exception as e:
+            log.error(f"Error handling hardware event: {e}")
 
     def _load_defaults(self):
         """Load default profile preferences and opacity settings from config"""
@@ -519,16 +512,31 @@ class AcerSenseManager:
             return ""
 
     def get_driver_version(self) -> str:
-        """Get Driver version"""
-        version_file = os.path.join(self.base_path, "version")
-        if not os.path.isfile(version_file):
-            return "Unknown Version"
+        """Get Driver version from module or device path, with modinfo fallback"""
+        # 1. Try file-based paths first
+        version_paths = [
+            os.path.join(self.base_path, "version"),
+            "/sys/module/linuwu_sense/version",
+            "/sys/module/linuwu_sense/src/version"
+        ]
         
+        for path in version_paths:
+            if os.path.isfile(path):
+                try:
+                    with open(path, "r") as f:
+                        v = f.read().strip()
+                        if v: return v
+                except: continue
+        
+        # 2. Fallback to modinfo command
         try:
-            with open(version_file, "r") as f:
-                return f.read().strip() or "Unknown Version"
-        except (OSError, IOError):
-            return "Unknown Version"
+            cmd = ["modinfo", "-F", "version", "linuwu_sense"]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            v = result.stdout.strip()
+            if v: return v
+        except: pass
+        
+        return "Unknown Version"
     
 
     def _detect_available_features(self) -> Set[str]:
@@ -1092,6 +1100,7 @@ class AcerSenseManager:
     def handle_power_change(self, is_plugged_in: bool):
         """Handles power source changes by setting the appropriate default thermal profile."""
         log.info(f"Manager handling power change. Plugged in: {is_plugged_in}")
+        self._last_power_change_time = time.time()
         
         # Broadcast event to GUI
         self._notify_event("power_state_changed", {"plugged_in": is_plugged_in})
@@ -1104,27 +1113,14 @@ class AcerSenseManager:
             target_profile = self.default_bat_profile
 
         # Immediately update visuals to prevent lag/flicker
-        # If we are unplugged, force opaque immediately even before setting profile
         self._update_hyprland_visuals(target_profile)
 
         if target_profile in profile_list:
             log.info(f"Setting default profile to: {target_profile}")
+            self.last_known_profile = target_profile # Set intent immediately
             self.set_thermal_profile(target_profile)
-            
-            # Schedule a retry chain to enforce the profile (Total 3 attempts over 4-6 seconds)
-            threading.Timer(2.0, lambda: self._enforce_profile(target_profile, retries=2)).start()
         else:
             log.warning(f"Default profile '{target_profile}' not available. Skipping auto-switch.")
-
-    def _enforce_profile(self, profile, retries=0):
-        """Retry setting profile and visuals to ensure it sticks"""
-        log.info(f"Enforcing profile: {profile} (Retries left: {retries})")
-        # Re-apply everything
-        self.set_thermal_profile(profile)
-        self._update_hyprland_visuals(profile)
-        
-        if retries > 0:
-             threading.Timer(2.0, lambda: self._enforce_profile(profile, retries - 1)).start()
 
     def get_backlight_timeout(self) -> str:
         """Get backlight timeout status"""
@@ -1195,34 +1191,50 @@ class AcerSenseManager:
         )
 
     def get_fan_speed(self) -> Tuple[str, str]:
-        """Get CPU and GPU fan speeds"""
+        """Get the CONTROL fan speeds (0-100 or 0 for Auto)"""
         if "fan_speed" not in self.available_features:
-            return ("", "")
-
+            return ("0", "0")
+        
         file_path = os.path.join(self.base_path, "fan_speed")
-
         try:
             with open(file_path, 'r') as f:
                 speeds = f.read().strip()
-
                 if "," in speeds:
-                    cpu, gpu = speeds.split(",", 1)
-                    return (cpu.strip(), gpu.strip())
-        except Exception as e:
-            log.error(f"Error reading fan speed: {e}")
+                    c, g = speeds.split(",", 1)
+                    return (c.strip(), g.strip())
+        except: pass
+        return ("0", "0")
 
-        return ("0", "0")  # Fallback
+    def get_fan_rpms(self) -> Tuple[str, str]:
+        """Get the actual SENSOR RPM values from hwmon"""
+        cpu_rpm, gpu_rpm = "0", "0"
+        try:
+            hwmon_path = "/sys/devices/platform/acer-wmi/hwmon"
+            if os.path.exists(hwmon_path):
+                hwmons = os.listdir(hwmon_path)
+                if hwmons:
+                    h_dir = os.path.join(hwmon_path, hwmons[0])
+                    f1 = os.path.join(h_dir, "fan1_input")
+                    f2 = os.path.join(h_dir, "fan2_input")
+                    if os.path.isfile(f1):
+                        with open(f1, "r") as f: cpu_rpm = f.read().strip()
+                    if os.path.isfile(f2):
+                        with open(f2, "r") as f: gpu_rpm = f.read().strip()
+        except: pass
+        return (cpu_rpm, gpu_rpm)
 
     def set_fan_speed(self, cpu: int, gpu: int) -> bool:
-        """Set CPU and GPU fan speeds"""
+        """Set CPU and GPU fan speeds with safety clamping"""
         if "fan_speed" not in self.available_features:
             return False
 
-        # Validate values
-        if not (0 <= cpu <= 100 and 0 <= gpu <= 100):
-            log.error(f"Invalid fan speeds. Values must be between 0 and 100: cpu={cpu}, gpu={gpu}")
-            return False
+        # 0 means AUTO mode, we allow it.
+        # But if it's 1-100, we ensure it's at least 20% to prevent fan stalling.
+        if cpu > 0: cpu = max(20, min(100, cpu))
+        if gpu > 0: gpu = max(20, min(100, gpu))
 
+        log.info(f"Setting fan speeds -> CPU: {cpu}%, GPU: {gpu}% (0=Auto)")
+        
         return self._write_file(
             os.path.join(self.base_path, "fan_speed"),
             f"{cpu},{gpu}"
@@ -1491,9 +1503,14 @@ class AcerSenseManager:
 
         if "fan_speed" in self.available_features:
             cpu_fan, gpu_fan = self.get_fan_speed()
+            cpu_rpms, gpu_rpms = self.get_fan_rpms()
             settings["fan_speed"] = {
                 "cpu": cpu_fan,
                 "gpu": gpu_fan
+            }
+            settings["fan_rpms"] = {
+                "cpu": cpu_rpms,
+                "gpu": gpu_rpms
             }
 
         if "lcd_override" in self.available_features:
@@ -1540,9 +1557,6 @@ class DaemonServer:
                 )
         
         self.manager.register_event_callback(sync_callback)
-
-        # Start hardware background monitor
-        asyncio.create_task(self.manager._background_status_monitor())
 
         # Remove socket if it already exists
         try:
@@ -2108,21 +2122,46 @@ class DaemonServer:
             elif command == "activate_nos":
                 if not self.manager.nos_active:
                     self.manager.nos_active = True
+                    # 1. Save current state
                     self.manager.previous_profile_for_nos = self.manager.get_thermal_profile()
-                    if "fan_speed" in self.manager.available_features:
-                        self.manager.set_fan_speed(100, 100)
-                    self.manager.set_thermal_profile("balanced-performance")
-                    return {"success": True, "message": "NOS Mode Activated"}
+                    
+                    # 2. Determine best profile (Performance if on AC, Balanced if on Battery)
+                    best_profile = "balanced-performance"
+                    available = self.manager.get_thermal_profile_choices()
+                    if self.manager.power_detector.is_plugged_in():
+                        if "performance" in available: best_profile = "performance"
+                        elif "balanced-performance" in available: best_profile = "balanced-performance"
+                    else:
+                        if "balanced" in available: best_profile = "balanced"
+                    
+                    # 3. Apply
+                    self.manager.set_fan_speed(100, 100)
+                    self.manager.set_thermal_profile(best_profile)
+                    
+                    # 4. Instant Sync
+                    self.broadcast_event("fan_speed_changed", {"cpu": "100", "gpu": "100"})
+                    self.broadcast_event("thermal_profile_changed", {"profile": best_profile})
+                    log.info(f"NOS Activated: Fans MAX, Profile: {best_profile}")
+                    return {"success": True, "message": "NOS Activated"}
                 return {"success": False, "message": "NOS already active"}
 
             elif command == "deactivate_nos":
                 if self.manager.nos_active:
                     self.manager.nos_active = False
-                    if hasattr(self.manager, 'previous_profile_for_nos') and self.manager.previous_profile_for_nos:
-                        self.manager.set_thermal_profile(self.manager.previous_profile_for_nos)
-                    if "fan_speed" in self.manager.available_features:
-                        self.manager.set_fan_speed(0, 0) # Assuming 0 is auto, might need adjustment
-                    return {"success": True, "message": "NOS Mode Deactivated"}
+                    # 1. Restore previous profile or safe default
+                    prev_p = getattr(self.manager, 'previous_profile_for_nos', "balanced")
+                    available = self.manager.get_thermal_profile_choices()
+                    if prev_p not in available: prev_p = "balanced" if "balanced" in available else available[0]
+                    
+                    # 2. Apply
+                    self.manager.set_fan_speed(0, 0)
+                    self.manager.set_thermal_profile(prev_p)
+                    
+                    # 3. Instant Sync
+                    self.broadcast_event("fan_speed_changed", {"cpu": "0", "gpu": "0"})
+                    self.broadcast_event("thermal_profile_changed", {"profile": prev_p})
+                    log.info(f"NOS Deactivated: Fans AUTO, Profile: {prev_p}")
+                    return {"success": True, "message": "NOS Deactivated"}
                 return {"success": False, "message": "NOS not active"}
 
             else:

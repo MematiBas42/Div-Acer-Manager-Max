@@ -31,75 +31,75 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly string ProjectVersion = "1.0";
 
     // UI Controls
-    private Button _applyKeyboardColorsButton;
-    private RadioButton _autoFanSpeedRadioButton;
-    private CheckBox _backlightTimeoutCheckBox;
-    private RadioButton _balancedProfileButton;
-    private CheckBox _batteryLimitCheckBox;
-    private CheckBox _bootAnimAndSoundCheckBox;
-    private TextBlock _calibrationStatusTextBlock;
-    public AcerSense _client;
-    private Slider _cpuFanSlider;
+    private Button? _applyKeyboardColorsButton;
+    private RadioButton? _autoFanSpeedRadioButton;
+    private CheckBox? _backlightTimeoutCheckBox;
+    private RadioButton? _balancedProfileButton;
+    private CheckBox? _batteryLimitCheckBox;
+    private CheckBox? _bootAnimAndSoundCheckBox;
+    private TextBlock? _calibrationStatusTextBlock;
+    public AcerSense? _client;
+    private Slider? _cpuFanSlider;
     private int _cpuFanSpeed = 50;
-    private TextBlock _cpuFanTextBlock;
-    private Dashboard _dashboardView;
-    private Grid _daemonErrorGrid;
-    private TextBlock _daemonVersionText;
-    private TextBlock _driverVersionText;
-    private Slider _gpuFanSlider;
-    private ComboBox _defaultAcProfileComboBox;
-    private ComboBox _defaultBatProfileComboBox;
+    private TextBlock? _cpuFanTextBlock;
+    private Dashboard? _dashboardView;
+    private Grid? _daemonErrorGrid;
+    private TextBlock? _daemonVersionText;
+    private TextBlock? _driverVersionText;
+    private Slider? _gpuFanSlider;
+    private ComboBox? _defaultAcProfileComboBox;
+    private ComboBox? _defaultBatProfileComboBox;
     private int _gpuFanSpeed = 70;
     
     // Opacity Controls
-    private Slider _acActiveOpacitySlider;
-    private Slider _acInactiveOpacitySlider;
-    private Slider _batActiveOpacitySlider;
-    private Slider _batInactiveOpacitySlider;
-    private TextBlock _acActiveOpacityText;
-    private TextBlock _acInactiveOpacityText;
-    private TextBlock _batActiveOpacityText;
-    private TextBlock _batInactiveOpacityText;
-    private Button _applyOpacityButton;
+    private Slider? _acActiveOpacitySlider;
+    private Slider? _acInactiveOpacitySlider;
+    private Slider? _batActiveOpacitySlider;
+    private Slider? _batInactiveOpacitySlider;
+    private TextBlock? _acActiveOpacityText;
+    private TextBlock? _acInactiveOpacityText;
+    private TextBlock? _batActiveOpacityText;
+    private TextBlock? _batInactiveOpacityText;
+    private Button? _applyOpacityButton;
 
-    private TextBlock _gpuFanTextBlock;
-    private TextBlock _guiVersionTextBlock;
-    private ToggleSwitch _hyprlandIntegrationToggleSwitch;
+    private TextBlock? _gpuFanTextBlock;
+    private TextBlock? _guiVersionTextBlock;
+    private ToggleSwitch? _hyprlandIntegrationToggleSwitch;
     private bool _isCalibrating;
     private bool _isConnected;
     private bool _isManualFanControl;
     private int _keyboardBrightness = 100;
-    private Slider _keyBrightnessSlider;
-    private TextBlock _keyBrightnessText;
-    private TextBlock _laptopTypeText;
-    private CheckBox _lcdOverrideCheckBox;
-    private RadioButton _leftToRightRadioButton;
-    private ColorPicker _lightEffectColorPicker;
-    private Button _lightingEffectsApplyButton;
-    private ComboBox _lightingModeComboBox;
+    private Slider? _keyBrightnessSlider;
+    private TextBlock? _keyBrightnessText;
+    private TextBlock? _laptopTypeText;
+    private CheckBox? _lcdOverrideCheckBox;
+    private RadioButton? _leftToRightRadioButton;
+    private ColorPicker? _lightEffectColorPicker;
+    private Button? _lightingEffectsApplyButton;
+    private ComboBox? _lightingModeComboBox;
     private int _lightingSpeed = 5;
-    private Slider _lightingSpeedSlider;
-    private TextBlock _lightSpeedTextBlock;
-    private TextBlock _linuxKernelVersionText;
-    private RadioButton _lowPowerProfileButton;
-    private RadioButton _manualFanSpeedRadioButton;
-    private RadioButton _maxFanSpeedRadioButton;
-    private TextBlock _modelNameText;
-    private RadioButton _performanceProfileButton;
-    private ToggleSwitch _powerToggleSwitch;
-    private RadioButton _quietProfileButton;
-    private Button _setManualSpeedButton;
-    public AcerSenseSettings _settings;
-    private Button _startCalibrationButton;
-    private Button _stopCalibrationButton;
-    private TextBlock _supportedFeaturesTextBlock;
-    private TextBlock _thermalProfileInfoText;
-    private RadioButton _turboProfileButton;
-    private ComboBox _usbChargingComboBox;
-    private ColorPicker _zone1ColorPicker;
-    private ColorPicker _zone2ColorPicker;
-    private ColorPicker _zone3ColorPicker;
-    private ColorPicker _zone4ColorPicker;
+    private Slider? _lightingSpeedSlider;
+    private TextBlock? _lightSpeedTextBlock;
+    private TextBlock? _linuxKernelVersionText;
+    private RadioButton? _lowPowerProfileButton;
+    private RadioButton? _manualFanSpeedRadioButton;
+    private RadioButton? _maxFanSpeedRadioButton;
+    private TextBlock? _modelNameText;
+    private RadioButton? _performanceProfileButton;
+    private ToggleSwitch? _powerToggleSwitch;
+    private RadioButton? _quietProfileButton;
+    private Button? _setManualSpeedButton;
+    public AcerSenseSettings _settings = new();
+    private Button? _startCalibrationButton;
+    private Button? _stopCalibrationButton;
+    private TextBlock? _supportedFeaturesTextBlock;
+    private TextBlock? _thermalProfileInfoText;
+    private RadioButton? _turboProfileButton;
+    private ComboBox? _usbChargingComboBox;
+    private ColorPicker? _zone1ColorPicker;
+    private ColorPicker? _zone2ColorPicker;
+    private ColorPicker? _zone3ColorPicker;
+    private ColorPicker? _zone4ColorPicker;
 
     public MainWindow()
     {
@@ -120,7 +120,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         AvaloniaXamlLoader.Load(this);
     }
 
-    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    private void MainWindow_Loaded(object? sender, RoutedEventArgs e)
     {
         BindControls();
         AttachEventHandlers();
@@ -131,6 +131,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void BindControls()
     {
         var nameScope = this.FindNameScope();
+        if (nameScope == null) return;
 
         // Thermal Profile controls
         _lowPowerProfileButton = nameScope.Find<RadioButton>("LowPowerProfileButton");
@@ -253,9 +254,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void UpdateUIElementVisibility()
     {
-        if (_settings == null) return;
+        if (_settings == null || _client == null) return;
 
         var nameScope = this.FindNameScope();
+        if (nameScope == null) return;
+
         var thermalProfilePanel = nameScope.Find<Border>("ThermalProfilePanel");
         var fanControlPanel = nameScope.Find<Border>("FanControlPanel");
         var batteryTab = nameScope.Find<TabItem>("PowerPanel");
@@ -305,9 +308,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         if (systemSettingsTab != null)
         {
-            var hasSystemSettings = _client.IsFeatureAvailable("lcd_override") ||
-                                    _client.IsFeatureAvailable("boot_animation_sound");
-
             var backlightControls = nameScope.Find<Border>("BacklightTimeoutControls");
             var lcdControls = nameScope.Find<Border>("LcdOverrideControls");
             var hyprlandControls = nameScope.Find<Border>("HyprlandIntegrationControls");
@@ -358,10 +358,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         try
         {
+            if (_client == null) _client = new AcerSense();
             _isConnected = await _client.ConnectAsync();
             if (_isConnected)
             {
-                _daemonErrorGrid.IsVisible = false;
+                if (_daemonErrorGrid != null) _daemonErrorGrid.IsVisible = false;
                 await LoadSettingsAsync();
                 
                 // Set client for dashboard (event system)
@@ -382,13 +383,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 await ShowMessageBox(
                     "Error Connecting to Daemon",
                     "Failed to connect to daemon. The Daemon may be initializing please wait.");
-                _daemonErrorGrid.IsVisible = true;
+                if (_daemonErrorGrid != null) _daemonErrorGrid.IsVisible = true;
             }
         }
         catch (Exception ex)
         {
             await ShowMessageBox("Error while initializing", $"Error initializing: {ex.Message}");
-            _daemonErrorGrid.IsVisible = true;
+            if (_daemonErrorGrid != null) _daemonErrorGrid.IsVisible = true;
         }
     }
 
@@ -409,13 +410,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         Dispatcher.UIThread.InvokeAsync(() =>
         {
-            if (int.TryParse(e.Cpu, out var cpuSpeed))
+            if (e.Cpu != null && int.TryParse(e.Cpu, out var cpuSpeed))
             {
                 if (_cpuFanSlider != null) _cpuFanSlider.Value = cpuSpeed;
                 if (_cpuFanTextBlock != null) _cpuFanTextBlock.Text = cpuSpeed == 0 ? "Auto" : $"{cpuSpeed}%";
             }
 
-            if (int.TryParse(e.Gpu, out var gpuSpeed))
+            if (e.Gpu != null && int.TryParse(e.Gpu, out var gpuSpeed))
             {
                 if (_gpuFanSlider != null) _gpuFanSlider.Value = gpuSpeed;
                 if (_gpuFanTextBlock != null) _gpuFanTextBlock.Text = gpuSpeed == 0 ? "Auto" : $"{gpuSpeed}%";
@@ -477,8 +478,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         try
         {
-            _settings = await _client.GetAllSettingsAsync() ?? new AcerSenseSettings();
-            ApplySettingsToUI();
+            if (_client != null)
+            {
+                _settings = await _client.GetAllSettingsAsync();
+                ApplySettingsToUI();
+            }
         }
         catch (Exception ex)
         {
@@ -494,7 +498,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         var isPluggedIn = _powerToggleSwitch?.IsChecked ?? false;
         var profileConfigs =
-            new Dictionary<string, (RadioButton button, string description, bool showOnBattery, bool showOnAC)>
+            new Dictionary<string, (RadioButton? button, string description, bool showOnBattery, bool showOnAC)>
             {
                 { "low-power", (_lowPowerProfileButton, "Prioritizes energy efficiency, reduces performance to extend battery life.", true, false) },
                 { "quiet", (_quietProfileButton, "Minimizes noise, prioritizes low power and cooling.", false, true) },
@@ -546,6 +550,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var acItems = new List<ComboBoxItem>();
             var batItems = new List<ComboBoxItem>();
 
+            // AC profiles: quiet, balanced, balanced-performance, performance
+            var acCompatible = new[] { "quiet", "balanced", "balanced-performance", "performance" };
+            // Battery profiles: low-power, balanced
+            var batCompatible = new[] { "low-power", "balanced" };
+
             foreach (var profile in _settings.ThermalProfile.Available)
             {
                 var displayName = profile switch
@@ -558,8 +567,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     _ => char.ToUpper(profile[0]) + profile.Substring(1)
                 };
 
-                acItems.Add(new ComboBoxItem { Content = displayName, Tag = profile });
-                batItems.Add(new ComboBoxItem { Content = displayName, Tag = profile });
+                if (acCompatible.Contains(profile))
+                    acItems.Add(new ComboBoxItem { Content = displayName, Tag = profile });
+                
+                if (batCompatible.Contains(profile))
+                    batItems.Add(new ComboBoxItem { Content = displayName, Tag = profile });
             }
 
             _defaultAcProfileComboBox.SelectionChanged -= DefaultProfile_SelectionChanged;
@@ -736,7 +748,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         InitializeAsync();
     }
 
-    private void UpdateButton_OnClick(object? sender, RoutedEventArgs e)
+    private void UpdateButton_OnClick(object? sender, RoutedEventArgs? e)
     {
         Process.Start(new ProcessStartInfo("xdg-open", "https://github.com/MematiBas42/Div-Acer-Manager-Max/releases") { UseShellExecute = true });
     }
@@ -752,9 +764,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         internalsManagerWindow.ShowDialog(this);
     }
 
-    private async void ProfileButton_Checked(object sender, RoutedEventArgs e)
+    private async void ProfileButton_Checked(object? sender, RoutedEventArgs e)
     {
-        if (!_isConnected || sender is not RadioButton button || button.IsChecked != true) return;
+        if (!_isConnected || _client == null || sender is not RadioButton button || button.IsChecked != true) return;
 
         var profile = button.Name switch
         {
@@ -799,20 +811,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async void DefaultProfile_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (!_isConnected || sender is not ComboBox comboBox || comboBox.SelectedItem is not ComboBoxItem item) return;
+        if (!_isConnected || _client == null || sender is not ComboBox comboBox || comboBox.SelectedItem is not ComboBoxItem item) return;
         var source = comboBox.Name == "DefaultAcProfileComboBox" ? "ac" : "bat";
         var profile = item.Tag?.ToString();
         if (!string.IsNullOrEmpty(profile)) await _client.SetDefaultProfilePreferenceAsync(source, profile);
     }
 
-    private void ManualFanControlRadioBox_Click(object sender, RoutedEventArgs e)
+    private void ManualFanControlRadioBox_Click(object? sender, RoutedEventArgs e)
     {
         _isManualFanControl = true;
         if (_manualFanSpeedRadioButton != null) _manualFanSpeedRadioButton.IsChecked = true;
         if (_autoFanSpeedRadioButton != null) _autoFanSpeedRadioButton.IsChecked = false;
     }
 
-    private void CpuFanSlider_ValueChanged(object sender, AvaloniaPropertyChangedEventArgs e)
+    private void CpuFanSlider_ValueChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property == Slider.ValueProperty)
         {
@@ -821,7 +833,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private void GpuFanSlider_ValueChanged(object sender, AvaloniaPropertyChangedEventArgs e)
+    private void GpuFanSlider_ValueChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property == Slider.ValueProperty)
         {
@@ -830,14 +842,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private async void SetManualSpeedButton_OnClick(object sender, RoutedEventArgs e)
+    private async void SetManualSpeedButton_OnClick(object? sender, RoutedEventArgs e)
     {
-        if (_isConnected) await _client.SetFanSpeedAsync(_cpuFanSpeed, _gpuFanSpeed);
+        if (_isConnected && _client != null) await _client.SetFanSpeedAsync(_cpuFanSpeed, _gpuFanSpeed);
     }
 
-    private async void AutoFanSpeedRadioButtonClick(object sender, RoutedEventArgs e)
+    private async void AutoFanSpeedRadioButtonClick(object? sender, RoutedEventArgs e)
     {
-        if (_isConnected)
+        if (_isConnected && _client != null)
         {
             await _client.SetFanSpeedAsync(0, 0);
             _isManualFanControl = false;
@@ -847,12 +859,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async void MaxFanSpeedRadioButton_OnClick(object? sender, RoutedEventArgs e)
     {
-        if (_isConnected) await _client.SetFanSpeedAsync(100, 100);
+        if (_isConnected && _client != null) await _client.SetFanSpeedAsync(100, 100);
     }
 
-    private async void StartCalibrationButton_Click(object sender, RoutedEventArgs e)
+    private async void StartCalibrationButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (_isConnected)
+        if (_isConnected && _client != null)
         {
             await _client.SetBatteryCalibrationAsync(true);
             if (_startCalibrationButton != null) _startCalibrationButton.IsEnabled = false;
@@ -861,9 +873,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private async void StopCalibrationButton_Click(object sender, RoutedEventArgs e)
+    private async void StopCalibrationButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (_isConnected)
+        if (_isConnected && _client != null)
         {
             await _client.SetBatteryCalibrationAsync(false);
             if (_startCalibrationButton != null) _startCalibrationButton.IsEnabled = true;
@@ -872,12 +884,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private async void BatteryLimitCheckBox_Click(object sender, RoutedEventArgs e)
+    private async void BatteryLimitCheckBox_Click(object? sender, RoutedEventArgs e)
     {
-        if (_isConnected && sender is CheckBox checkBox) await _client.SetBatteryLimiterAsync(checkBox.IsChecked ?? false);
+        if (_isConnected && _client != null && sender is CheckBox checkBox) await _client.SetBatteryLimiterAsync(checkBox.IsChecked ?? false);
     }
 
-    private void KeyboardBrightnessSlider_ValueChanged(object sender, AvaloniaPropertyChangedEventArgs e)
+    private void KeyboardBrightnessSlider_ValueChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property == Slider.ValueProperty)
         {
@@ -886,9 +898,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private async void ApplyKeyboardColorsButton_Click(object sender, RoutedEventArgs e)
+    private async void ApplyKeyboardColorsButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (_isConnected && _settings.HasFourZoneKb)
+        if (_isConnected && _client != null && _settings.HasFourZoneKb)
             await _client.SetPerZoneModeAsync(
                 _zone1ColorPicker?.Color.ToString().Substring(3) ?? "#4287f5",
                 _zone2ColorPicker?.Color.ToString().Substring(3) ?? "#ff5733",
@@ -898,7 +910,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             );
     }
 
-    private void LightingSpeedSlider_ValueChanged(object sender, AvaloniaPropertyChangedEventArgs e)
+    private void LightingSpeedSlider_ValueChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property == Slider.ValueProperty)
         {
@@ -907,10 +919,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private async void LightingEffectsApplyButton_Click(object sender, RoutedEventArgs e)
+    private async void LightingEffectsApplyButton_Click(object? sender, RoutedEventArgs e)
     {
-        if ((_isConnected && _settings.HasFourZoneKb) || AppState.DevMode)
+        if ((_isConnected && _client != null && _settings.HasFourZoneKb) || AppState.DevMode)
         {
+            if (_client == null) return;
             var mode = _lightingModeComboBox?.SelectedIndex ?? 0;
             var direction = _leftToRightRadioButton?.IsChecked == true ? 1 : 2;
             var color = _lightEffectColorPicker?.Color ?? Color.Parse(_effectColor);
@@ -919,25 +932,25 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private async void BacklightTimeoutCheckBox_Click(object sender, RoutedEventArgs e)
+    private async void BacklightTimeoutCheckBox_Click(object? sender, RoutedEventArgs e)
     {
-        if (_isConnected && sender is CheckBox checkBox) await _client.SetBacklightTimeoutAsync(checkBox.IsChecked ?? false);
+        if (_isConnected && _client != null && sender is CheckBox checkBox) await _client.SetBacklightTimeoutAsync(checkBox.IsChecked ?? false);
     }
 
-    private async void LcdOverrideCheckBox_Click(object sender, RoutedEventArgs e)
+    private async void LcdOverrideCheckBox_Click(object? sender, RoutedEventArgs e)
     {
-        if (_isConnected && sender is CheckBox checkBox) await _client.SetLcdOverrideAsync(checkBox.IsChecked ?? false);
+        if (_isConnected && _client != null && sender is CheckBox checkBox) await _client.SetLcdOverrideAsync(checkBox.IsChecked ?? false);
     }
 
     private async void HyprlandIntegration_Toggled(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
-        if (e.Property.Name == "IsChecked" && _isConnected && sender is ToggleSwitch toggleSwitch)
+        if (e.Property.Name == "IsChecked" && _isConnected && _client != null && sender is ToggleSwitch toggleSwitch)
         {
             await _client.SetHyprlandIntegrationAsync(toggleSwitch.IsChecked ?? false);
         }
     }
 
-    private void OpacitySlider_ValueChanged(object sender, AvaloniaPropertyChangedEventArgs e)
+    private void OpacitySlider_ValueChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property == Slider.ValueProperty && sender is Slider slider)
         {
@@ -949,9 +962,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private async void ApplyOpacityButton_OnClick(object sender, RoutedEventArgs e)
+    private async void ApplyOpacityButton_OnClick(object? sender, RoutedEventArgs e)
     {
-        if (_isConnected)
+        if (_isConnected && _client != null)
         {
             await _client.SetHyprlandOpacitySettingsAsync(
                 _acActiveOpacitySlider?.Value ?? 0.97,
@@ -962,14 +975,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private async void BootSoundCheckBox_Click(object sender, RoutedEventArgs e)
+    private async void BootSoundCheckBox_Click(object? sender, RoutedEventArgs e)
     {
-        if (_isConnected && sender is CheckBox checkBox) await _client.SetBootAnimationSoundAsync(checkBox.IsChecked ?? false);
+        if (_isConnected && _client != null && sender is CheckBox checkBox) await _client.SetBootAnimationSoundAsync(checkBox.IsChecked ?? false);
     }
 
     private async void UsbChargingComboBox_OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (_isConnected && _usbChargingComboBox != null)
+        if (_isConnected && _client != null && _usbChargingComboBox != null)
         {
             var level = _usbChargingComboBox.SelectedIndex switch { 1 => 10, 2 => 20, 3 => 30, _ => 0 };
             await _client.SetUsbChargingAsync(level);
@@ -1009,9 +1022,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public static class AppState { public static bool DevMode { get; set; } }
 
     #region INotifyPropertyChanged
-    public event PropertyChangedEventHandler PropertyChanged;
-    protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    protected bool SetField<T>(ref T field, T value, [CallerMemberName] string propertyName = null)
+    public new event PropertyChangedEventHandler? PropertyChanged;
+    protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    protected bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value)) return false;
         field = value;

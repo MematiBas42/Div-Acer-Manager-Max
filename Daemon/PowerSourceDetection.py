@@ -81,37 +81,43 @@ class PowerSourceDetector:
 
         while self.running:
             try:
-                # Poll with a timeout of 2000ms (2 seconds)
-                # This allows us to check 'self.running' periodically even if no events occur
-                # It also acts as a safety "heartbeat" check
-                events = poll_obj.poll(2000)
+                # Poll with a 5-second timeout (5000ms). Wake up immediately on events.
+                # This allows the thread to check 'self.running' periodically for graceful shutdown.
+                events = poll_obj.poll(5000)
                 
-                should_check = False
+                should_check_power = False
+                should_check_profile = False
                 
                 if not events:
-                    # Timeout occurred (no events for 2 seconds)
-                    # We perform a safety check anyway, just in case we missed something
-                    should_check = True
+                    # Heartbeat check every 5 seconds just in case Netlink missed something
+                    self.check_power_source()
+                    continue
                 
                 for fd, event in events:
                     if fd == sock.fileno():
-                        # Receive event data
                         data = sock.recv(16384)
                         decoded = data.decode('utf-8', errors='replace')
                         
-                        # Filter for power_supply subsystem events
                         if "SUBSYSTEM=power_supply" in decoded:
-                            log.debug("Received power_supply uevent")
-                            # Give sysfs a moment to update
-                            time.sleep(0.5)
-                            should_check = True
+                            log.debug("Kernel Event: Power source change detected")
+                            should_check_power = True
+                        
+                        if "platform_profile" in decoded:
+                            log.debug("Kernel Event: Thermal profile change detected")
+                            should_check_profile = True
                 
-                if should_check:
+                if should_check_power:
+                    # Give sysfs a moment to update
+                    time.sleep(0.1)
                     self.check_power_source()
+                
+                if should_check_profile:
+                    # Notify manager to check and broadcast new profile
+                    self.manager.handle_hardware_event()
 
             except Exception as e:
                 log.error(f"Error in Netlink loop: {e}")
-                time.sleep(1) # Prevent tight loop on error
+                time.sleep(5) # Prevent tight loop on error
 
         if sock:
             sock.close()
