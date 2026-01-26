@@ -1526,8 +1526,20 @@ class DaemonServer:
                 self.handle_client, path=SOCKET_PATH
             )
             
-            # Ensure socket permissions
-            os.chmod(SOCKET_PATH, 0o666)
+            # --- Security: Socket Permissions ---
+            # Get the GID of the real user who invoked sudo (or current user)
+            sudo_user = os.environ.get('SUDO_USER')
+            if sudo_user:
+                try:
+                    uid = pwd.getpwnam(sudo_user).pw_uid
+                    gid = pwd.getpwnam(sudo_user).pw_gid
+                    os.chown(SOCKET_PATH, -1, gid) # Change group to user's group
+                    log.info(f"Socket group ownership set to GID: {gid} ({sudo_user})")
+                except KeyError:
+                    log.warning(f"Could not find SUDO_USER: {sudo_user}")
+            
+            # Set permissions to 660 (User/Group RW, Others None)
+            os.chmod(SOCKET_PATH, 0o660)
             
             log.info(f"Async Server listening on {SOCKET_PATH}")
             
@@ -1574,14 +1586,14 @@ class DaemonServer:
 
         try:
             while self.running:
-                data = await reader.read(4096)
+                # Read until newline separator (Framing)
+                data = await reader.readuntil(b'\n')
                 if not data:
                     break
 
                 try:
-                    message = data.decode('utf-8')
-                    # Support multiple JSON objects in one packet (if they stick together)
-                    # For now assume one line/packet per command or handle basic structure
+                    message = data.decode('utf-8').strip()
+                    if not message: continue
                     
                     request = json.loads(message)
                     command = request.get("command", "")
@@ -1590,13 +1602,15 @@ class DaemonServer:
                     # Process command (Sync logic for now)
                     response = self.process_command(command, params)
 
-                    # Send response
-                    response_data = json.dumps(response).encode('utf-8')
+                    # Send response with Newline Delimiter
+                    response_data = json.dumps(response).encode('utf-8') + b'\n'
                     writer.write(response_data)
                     await writer.drain()
 
                 except json.JSONDecodeError:
                     log.error("Invalid JSON received")
+                except asyncio.IncompleteReadError:
+                    break # Stream closed
                 except Exception as e:
                     log.error(f"Error processing request: {e}")
                     log.error(traceback.format_exc())
@@ -1604,7 +1618,8 @@ class DaemonServer:
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            log.error(f"Client connection error: {e}")
+            # Common disconnect error
+            pass
         finally:
             self.clients.discard((reader, writer))
             try:
@@ -1625,7 +1640,8 @@ class DaemonServer:
         }
         
         try:
-            message = json.dumps(payload).encode('utf-8')
+            # Add Newline Delimiter for Framing
+            message = json.dumps(payload).encode('utf-8') + b'\n'
             log.debug(f"Broadcasting event: {event_type} to {len(self.clients)} clients")
             
             stale_clients = []

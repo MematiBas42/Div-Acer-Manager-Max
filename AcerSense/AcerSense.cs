@@ -67,186 +67,34 @@ public class AcerSense : IDisposable
         {
             try
             {
-                // Create a dedicated socket for events
-                if (_eventSocket != null)
-                {
-                    try { _eventSocket.Dispose(); } catch { }
-                }
+                if (_eventSocket != null) try { _eventSocket.Dispose(); } catch { }
 
                 _eventSocket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.IP);
                 var endpoint = new UnixDomainSocketEndPoint(SocketPath);
                 
                 await _eventSocket.ConnectAsync(endpoint, token);
-                Console.WriteLine("Event listener connected.");
-
-                var buffer = new byte[4096];
                 
+                using var stream = new NetworkStream(_eventSocket, false);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+
                 while (!token.IsCancellationRequested)
                 {
-                    var received = await _eventSocket.ReceiveAsync(buffer, SocketFlags.None, token);
-                    if (received == 0) break; // Disconnected
+                    // Read line-by-line (Framing)
+                    var jsonString = await reader.ReadLineAsync();
+                    if (jsonString == null) break; // Disconnected
 
-                    var jsonString = Encoding.UTF8.GetString(buffer, 0, received);
-                    ProcessIncomingMessage(jsonString);
+                    if (!string.IsNullOrWhiteSpace(jsonString))
+                        ProcessIncomingMessage(jsonString);
                 }
             }
             catch (Exception)
             {
-                // Ignore disconnects, just retry after delay
+                // Retry loop
             }
 
-            // Wait before reconnecting
             if (!token.IsCancellationRequested)
                 await Task.Delay(2000, token);
         }
-    }
-
-    private void ProcessIncomingMessage(string json)
-    {
-        try
-        {
-            // The daemon might send multiple JSON objects stuck together or partials.
-            // For simplicity in this v1 implementation, we assume one event per packet 
-            // or handle simple cases. A robust buffer parser would be better for prod.
-            
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("type", out var typeProp) && 
-                typeProp.GetString() == "event")
-            {
-                var eventName = doc.RootElement.GetProperty("event").GetString();
-                var data = doc.RootElement.GetProperty("data");
-
-                switch (eventName)
-                {
-                    case "thermal_profile_changed":
-                        var profile = data.GetProperty("profile").GetString();
-                        ThermalProfileChanged?.Invoke(this, profile);
-                        break;
-                    case "fan_speed_changed":
-                        var fanData = JsonSerializer.Deserialize<FanSpeedSettings>(data.GetRawText());
-                        FanSpeedChanged?.Invoke(this, fanData);
-                        break;
-                    case "power_state_changed":
-                        // Implement if daemon sends this
-                        break;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error processing event: {ex.Message}");
-        }
-    }
-
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    // Property to check if a feature is available
-    public bool IsFeatureAvailable(string featureName)
-    {
-        return _availableFeatures.Contains(featureName);
-    }
-
-    /// <summary>
-    ///     Connect to the AcerSense daemon Unix socket
-    /// </summary>
-    /// <returns>True if connection successful, false otherwise</returns>
-    private async Task<bool> ValidateConnection()
-    {
-        if (!IsConnected) return false;
-
-        try
-        {
-            // Send a simple ping command to verify connection
-            var response = await SendCommandAsync("ping");
-            return response.RootElement.GetProperty("success").GetBoolean();
-        }
-        catch
-        {
-            IsConnected = false;
-            return false;
-        }
-    }
-
-// Modify ConnectAsync to include validation
-    public async Task<bool> ConnectAsync()
-    {
-        try
-        {
-            if (IsConnected && await ValidateConnection()) return true;
-
-            _socket?.Dispose();
-            _socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.IP);
-            var endpoint = new UnixDomainSocketEndPoint(SocketPath);
-
-            await _socket.ConnectAsync(endpoint);
-            IsConnected = true;
-
-            // Get available features upon connection
-            await RefreshAvailableFeaturesAsync();
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Failed to connect to daemon: {ex.Message}");
-            IsConnected = false;
-            return false;
-        }
-    }
-
-    /// <summary>
-    ///     Refresh the available features cache from the daemon
-    /// </summary>
-    private async Task RefreshAvailableFeaturesAsync()
-    {
-        try
-        {
-            var response = await SendCommandAsync("get_supported_features");
-            var success = response.RootElement.GetProperty("success").GetBoolean();
-
-            if (success)
-            {
-                var data = response.RootElement.GetProperty("data");
-                var features = data.GetProperty("available_features");
-
-                _availableFeatures.Clear();
-                foreach (var feature in features.EnumerateArray())
-                {
-                    var originFeatureName = feature.GetString();
-                    _availableFeatures.Add(FormatFeatureName(originFeatureName));
-                }
-
-                Console.WriteLine($"Available features: {string.Join(", ", _availableFeatures)}");
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Failed to get available features: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    ///     Disconnect from the AcerSense daemon Unix socket
-    /// </summary>
-    public void Disconnect()
-    {
-        if (IsConnected)
-            try
-            {
-                _socket?.Close();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error during disconnect: {ex.Message}");
-            }
-            finally
-            {
-                IsConnected = false;
-            }
     }
 
     public async Task<JsonDocument> SendCommandAsync(string command, Dictionary<string, object> parameters = null)
@@ -267,41 +115,35 @@ public class AcerSense : IDisposable
                     @params = parameters ?? new Dictionary<string, object>()
                 };
 
-                var requestJson = JsonSerializer.Serialize(request);
+                // Append Newline Delimiter
+                var requestJson = JsonSerializer.Serialize(request) + "\n";
                 var requestBytes = Encoding.UTF8.GetBytes(requestJson);
 
-                // Send request
                 await _socket.SendAsync(requestBytes, SocketFlags.None);
 
-                // Receive response
-                var buffer = new byte[4096];
-                var received = await _socket.ReceiveAsync(buffer, SocketFlags.None);
+                // Read response line-by-line using NetworkStream for framing
+                // We use a temporary stream wrapper for the read operation to utilize StreamReader
+                // Note: We don't dispose the stream here as it would close the socket
+                using var stream = new NetworkStream(_socket, false);
+                using var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, true); // leaveOpen=true
 
-                if (received > 0)
+                var responseJson = await reader.ReadLineAsync();
+                
+                if (responseJson != null)
                 {
-                    var responseJson = Encoding.UTF8.GetString(buffer, 0, received);
                     return JsonDocument.Parse(responseJson);
                 }
 
-                // If we got here, we received 0 bytes - connection was closed
-                IsConnected = false;
-                attempt++;
-                await Task.Delay(RetryDelayMs);
-            }
-            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionReset ||
-                                             ex.SocketErrorCode == SocketError.Shutdown ||
-                                             ex.SocketErrorCode == SocketError.ConnectionAborted)
-            {
-                // Connection was reset - try to reconnect
                 IsConnected = false;
                 attempt++;
                 await Task.Delay(RetryDelayMs);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error communicating with daemon: {ex.Message}");
+                // Console.WriteLine($"Error communicating: {ex.Message}");
                 IsConnected = false;
-                throw;
+                attempt++;
+                await Task.Delay(RetryDelayMs);
             }
 
         throw new IOException($"Failed to communicate with daemon after {MaxRetryAttempts} attempts");
