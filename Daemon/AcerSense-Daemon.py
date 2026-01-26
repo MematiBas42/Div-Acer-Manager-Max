@@ -530,10 +530,13 @@ class AcerSenseManager:
         
         # 2. Fallback to modinfo command
         try:
-            cmd = ["modinfo", "-F", "version", "linuwu_sense"]
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            v = result.stdout.strip()
-            if v: return v
+            # Try 'version' first, then 'srcversion'
+            for field in ["version", "srcversion"]:
+                cmd = ["modinfo", "-F", field, "linuwu_sense"]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    v = result.stdout.strip()
+                    if v: return v
         except: pass
         
         return "Unknown Version"
@@ -1201,6 +1204,8 @@ class AcerSenseManager:
                 speeds = f.read().strip()
                 if "," in speeds:
                     c, g = speeds.split(",", 1)
+                    # If values are unusually high (like RPMs), someone else wrote them or it's a bug.
+                    # On most models, the control file only holds 0-100 or specific mode codes.
                     return (c.strip(), g.strip())
         except: pass
         return ("0", "0")
@@ -1224,21 +1229,21 @@ class AcerSenseManager:
         return (cpu_rpm, gpu_rpm)
 
     def set_fan_speed(self, cpu: int, gpu: int) -> bool:
-        """Set CPU and GPU fan speeds with safety clamping"""
+        """Set CPU and GPU fan speeds"""
         if "fan_speed" not in self.available_features:
             return False
 
-        # 0 means AUTO mode, we allow it.
-        # But if it's 1-100, we ensure it's at least 20% to prevent fan stalling.
-        if cpu > 0: cpu = max(20, min(100, cpu))
-        if gpu > 0: gpu = max(20, min(100, gpu))
+        # Mode Selection
+        if cpu == 0 and gpu == 0:
+            write_val = "0,0"
+        else:
+            # Clamp between 20-100 to prevent stalling
+            cpu = max(20, min(100, cpu))
+            gpu = max(20, min(100, gpu))
+            write_val = f"{cpu},{gpu}"
 
-        log.info(f"Setting fan speeds -> CPU: {cpu}%, GPU: {gpu}% (0=Auto)")
-        
-        return self._write_file(
-            os.path.join(self.base_path, "fan_speed"),
-            f"{cpu},{gpu}"
-        )
+        log.info(f"Setting fan speeds -> {write_val}")
+        return self._write_file(os.path.join(self.base_path, "fan_speed"), write_val)
 
 
     def get_lcd_override(self) -> str:
@@ -2122,46 +2127,28 @@ class DaemonServer:
             elif command == "activate_nos":
                 if not self.manager.nos_active:
                     self.manager.nos_active = True
-                    # 1. Save current state
                     self.manager.previous_profile_for_nos = self.manager.get_thermal_profile()
-                    
-                    # 2. Determine best profile (Performance if on AC, Balanced if on Battery)
-                    best_profile = "balanced-performance"
-                    available = self.manager.get_thermal_profile_choices()
-                    if self.manager.power_detector.is_plugged_in():
-                        if "performance" in available: best_profile = "performance"
-                        elif "balanced-performance" in available: best_profile = "balanced-performance"
-                    else:
-                        if "balanced" in available: best_profile = "balanced"
-                    
-                    # 3. Apply
-                    self.manager.set_fan_speed(100, 100)
-                    self.manager.set_thermal_profile(best_profile)
-                    
-                    # 4. Instant Sync
+                    if "fan_speed" in self.manager.available_features:
+                        self.manager.set_fan_speed(100, 100)
+                    self.manager.set_thermal_profile("balanced-performance")
+                    # Force events for GUI sync
+                    self.broadcast_event("thermal_profile_changed", {"profile": "balanced-performance"})
                     self.broadcast_event("fan_speed_changed", {"cpu": "100", "gpu": "100"})
-                    self.broadcast_event("thermal_profile_changed", {"profile": best_profile})
-                    log.info(f"NOS Activated: Fans MAX, Profile: {best_profile}")
-                    return {"success": True, "message": "NOS Activated"}
+                    return {"success": True, "message": "NOS Mode Activated"}
                 return {"success": False, "message": "NOS already active"}
 
             elif command == "deactivate_nos":
                 if self.manager.nos_active:
                     self.manager.nos_active = False
-                    # 1. Restore previous profile or safe default
+                    if hasattr(self.manager, 'previous_profile_for_nos') and self.manager.previous_profile_for_nos:
+                        self.manager.set_thermal_profile(self.manager.previous_profile_for_nos)
+                    if "fan_speed" in self.manager.available_features:
+                        self.manager.set_fan_speed(0, 0)
+                    # Force events for GUI sync
                     prev_p = getattr(self.manager, 'previous_profile_for_nos', "balanced")
-                    available = self.manager.get_thermal_profile_choices()
-                    if prev_p not in available: prev_p = "balanced" if "balanced" in available else available[0]
-                    
-                    # 2. Apply
-                    self.manager.set_fan_speed(0, 0)
-                    self.manager.set_thermal_profile(prev_p)
-                    
-                    # 3. Instant Sync
-                    self.broadcast_event("fan_speed_changed", {"cpu": "0", "gpu": "0"})
                     self.broadcast_event("thermal_profile_changed", {"profile": prev_p})
-                    log.info(f"NOS Deactivated: Fans AUTO, Profile: {prev_p}")
-                    return {"success": True, "message": "NOS Deactivated"}
+                    self.broadcast_event("fan_speed_changed", {"cpu": "0", "gpu": "0"})
+                    return {"success": True, "message": "NOS Mode Deactivated"}
                 return {"success": False, "message": "NOS not active"}
 
             else:

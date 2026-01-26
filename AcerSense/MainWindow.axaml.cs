@@ -32,6 +32,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     // UI Controls
     private Button? _applyKeyboardColorsButton;
+    private Border? _fanControlPanel;
     private RadioButton? _autoFanSpeedRadioButton;
     private CheckBox? _backlightTimeoutCheckBox;
     private RadioButton? _balancedProfileButton;
@@ -132,6 +133,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         var nameScope = this.FindNameScope();
         if (nameScope == null) return;
+
+        // Fan Control Panel
+        _fanControlPanel = nameScope.Find<Border>("FanControlPanel");
 
         // Thermal Profile controls
         _lowPowerProfileButton = nameScope.Find<RadioButton>("LowPowerProfileButton");
@@ -410,17 +414,22 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         Dispatcher.UIThread.InvokeAsync(() =>
         {
-            if (e.Cpu != null && int.TryParse(e.Cpu, out var cpuSpeed))
+            int cpu = 0, gpu = 0;
+            if (e.Cpu != null && int.TryParse(e.Cpu, out cpu))
             {
-                if (_cpuFanSlider != null) _cpuFanSlider.Value = cpuSpeed;
-                if (_cpuFanTextBlock != null) _cpuFanTextBlock.Text = cpuSpeed == 0 ? "Auto" : $"{cpuSpeed}%";
+                if (_cpuFanSlider != null) _cpuFanSlider.Value = cpu;
+                if (_cpuFanTextBlock != null) _cpuFanTextBlock.Text = cpu == 0 ? "Auto" : $"{cpu}%";
             }
 
-            if (e.Gpu != null && int.TryParse(e.Gpu, out var gpuSpeed))
+            if (e.Gpu != null && int.TryParse(e.Gpu, out gpu))
             {
-                if (_gpuFanSlider != null) _gpuFanSlider.Value = gpuSpeed;
-                if (_gpuFanTextBlock != null) _gpuFanTextBlock.Text = gpuSpeed == 0 ? "Auto" : $"{gpuSpeed}%";
+                if (_gpuFanSlider != null) _gpuFanSlider.Value = gpu;
+                if (_gpuFanTextBlock != null) _gpuFanTextBlock.Text = gpu == 0 ? "Auto" : $"{gpu}%";
             }
+
+            var isManualMode = cpu > 0 || gpu > 0;
+            if (_manualFanSpeedRadioButton != null) _manualFanSpeedRadioButton.IsChecked = isManualMode;
+            if (_autoFanSpeedRadioButton != null) _autoFanSpeedRadioButton.IsChecked = !isManualMode;
         });
     }
 
@@ -637,21 +646,45 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (int.TryParse(_settings.FanSpeed?.Cpu ?? "0", out var cpuSpeed))
         {
             _cpuFanSpeed = cpuSpeed;
-            if (_cpuFanSlider != null) _cpuFanSlider.Value = cpuSpeed;
-            if (_cpuFanTextBlock != null) _cpuFanTextBlock.Text = cpuSpeed == 0 ? "Auto" : $"{cpuSpeed}%";
+            if (_cpuFanSlider != null)
+            {
+                _cpuFanSlider.Value = cpuSpeed;
+                if (_cpuFanTextBlock != null)
+                    _cpuFanTextBlock.Text = cpuSpeed == 0 ? "Auto" : $"{cpuSpeed}%";
+            }
         }
 
         if (int.TryParse(_settings.FanSpeed?.Gpu ?? "0", out var gpuSpeed))
         {
             _gpuFanSpeed = gpuSpeed;
-            if (_gpuFanSlider != null) _gpuFanSlider.Value = gpuSpeed;
-            if (_gpuFanTextBlock != null) _gpuFanTextBlock.Text = gpuSpeed == 0 ? "Auto" : $"{gpuSpeed}%";
+            if (_gpuFanSlider != null)
+            {
+                _gpuFanSlider.Value = gpuSpeed;
+                if (_gpuFanTextBlock != null)
+                    _gpuFanTextBlock.Text = gpuSpeed == 0 ? "Auto" : $"{gpuSpeed}%";
+            }
         }
 
         var isManualMode = cpuSpeed > 0 || gpuSpeed > 0;
         _isManualFanControl = isManualMode;
         if (_manualFanSpeedRadioButton != null) _manualFanSpeedRadioButton.IsChecked = isManualMode;
         if (_autoFanSpeedRadioButton != null) _autoFanSpeedRadioButton.IsChecked = !isManualMode;
+
+        // Profile-based fan locking from first commit
+        if (_settings.ThermalProfile != null && _settings.ThermalProfile.Current != null)
+        {
+            var profile = _settings.ThermalProfile.Current.ToLower();
+            if (profile == "quiet" && !AppState.DevMode)
+            {
+                if (_manualFanSpeedRadioButton != null) _manualFanSpeedRadioButton.IsEnabled = false;
+                if (_maxFanSpeedRadioButton != null) _maxFanSpeedRadioButton.IsEnabled = false;
+            }
+            else
+            {
+                if (_maxFanSpeedRadioButton != null) _maxFanSpeedRadioButton.IsEnabled = true;
+                if (_manualFanSpeedRadioButton != null) _manualFanSpeedRadioButton.IsEnabled = true;
+            }
+        }
 
         ApplyKeyboardSettings();
 

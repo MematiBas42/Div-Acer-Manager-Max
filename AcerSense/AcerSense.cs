@@ -238,16 +238,20 @@ public class AcerSense : IDisposable
 
     public async Task<bool> SetThermalProfileAsync(string profile)
     {
-        if (!IsFeatureAvailable("thermal_profile")) return false;
-        var response = await SendCommandAsync("set_thermal_profile", new Dictionary<string, object> { { "profile", profile } });
-        return response.RootElement.GetProperty("success").GetBoolean();
+        try {
+            if (!IsFeatureAvailable("thermal_profile")) return false;
+            var response = await SendCommandAsync("set_thermal_profile", new Dictionary<string, object> { { "profile", profile } });
+            return response.RootElement.TryGetProperty("success", out var successProp) && successProp.GetBoolean();
+        } catch { return false; }
     }
 
     public async Task<bool> SetFanSpeedAsync(int cpu, int gpu)
     {
-        if (!IsFeatureAvailable("fan_speed")) return false;
-        var response = await SendCommandAsync("set_fan_speed", new Dictionary<string, object> { { "cpu", cpu }, { "gpu", gpu } });
-        return response.RootElement.GetProperty("success").GetBoolean();
+        try {
+            if (!IsFeatureAvailable("fan_speed")) return false;
+            var response = await SendCommandAsync("set_fan_speed", new Dictionary<string, object> { { "cpu", cpu }, { "gpu", gpu } });
+            return response.RootElement.TryGetProperty("success", out var successProp) && successProp.GetBoolean();
+        } catch { return false; }
     }
 
     public async Task<bool> SetBacklightTimeoutAsync(bool enabled)

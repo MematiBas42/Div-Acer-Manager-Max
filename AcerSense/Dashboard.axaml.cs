@@ -145,26 +145,29 @@ public partial class Dashboard : UserControl, INotifyPropertyChanged
             var data = new MetricsData();
             await Task.Run(async () =>
             {
-                data.CpuUsage = GetCpuUsage();
-                data.CpuTemp = GetCpuTemperature();
-                data.RamUsage = GetRamUsage();
-                var gm = GetGpuMetrics();
-                data.GpuTemp = gm.temperature;
-                data.GpuUsage = gm.usage;
-                var bi = GetBatteryInfo();
-                data.BatteryPercentage = bi.percentage;
-                data.BatteryStatus = bi.status;
-                data.BatteryTimeRemaining = FormatTimeRemain(bi.status, bi.timeRemaining);
-                // Fetch fan speeds through the client if available
-                if (_client != null && _client.IsConnected)
-                {
-                    try {
+                try {
+                    data.CpuUsage = GetCpuUsage();
+                    data.CpuTemp = GetCpuTemperature();
+                    data.RamUsage = GetRamUsage();
+                    var gm = GetGpuMetrics();
+                    data.GpuTemp = gm.temperature;
+                    data.GpuUsage = gm.usage;
+                    var bi = GetBatteryInfo();
+                    data.BatteryPercentage = bi.percentage;
+                    data.BatteryStatus = bi.status ?? "Unknown";
+                    data.BatteryTimeRemaining = FormatTimeRemain(data.BatteryStatus, bi.timeRemaining);
+                    
+                    if (_client != null && _client.IsConnected)
+                    {
                         var s = await _client.GetAllSettingsAsync();
-                        if (s.FanRpms != null) {
+                        // Use FanRpms for real sensor readings on the dashboard
+                        if (s != null && s.FanRpms != null) {
                             if (s.FanRpms.Cpu != null && int.TryParse(s.FanRpms.Cpu, out var cs)) data.CpuFanSpeedRPM = cs;
                             if (s.FanRpms.Gpu != null && int.TryParse(s.FanRpms.Gpu, out var gs)) data.GpuFanSpeedRPM = gs;
                         }
-                    } catch {}
+                    }
+                } catch (Exception taskEx) {
+                    Console.WriteLine($"Metric Task Error: {taskEx.Message}");
                 }
             });
 
