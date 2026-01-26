@@ -1,20 +1,47 @@
 #!/bin/bash
 
+# NitroButton Service
+# Listens for the Nitro key (KEY_PROG3 / code 425) and delegates to long_press_handler.sh.
+
+# Path to the handler script (Custom path from user config)
+HANDLER_SCRIPT="$HOME/.config/hypr/custom/scripts/long_press_handler.sh"
+
+if [ ! -f "$HANDLER_SCRIPT" ]; then
+    # Try alternate path if not found
+    HANDLER_SCRIPT="/opt/acersense/keyboard/long_press_handler.sh"
+fi
+
 # Find keyboard device
-DEVICE=$(grep -A 5 -B 5 "keyboard\|Keyboard" /proc/bus/input/devices | grep -m 1 "event" | sed 's/.*event\([0-9]\+\).*/\/dev\/input\/event\1/')
+DEVICE=$(grep -E -A 4 'Handlers|EV=' /proc/bus/input/devices | grep -B 4 'EV=120013' | grep -o 'event[0-9]\+' | head -n 1)
 
 if [ -z "$DEVICE" ]; then
-    systemd-cat -t nitrobutton-script echo "Error: Could not find keyboard device."
+    DEVICE=$(grep -A 5 -B 5 "keyboard\|Keyboard" /proc/bus/input/devices | grep -m 1 "event" | sed 's/.*event\([0-9]\+\).*/event\1/')
+fi
+
+if [ -z "$DEVICE" ]; then
+    echo "Error: Could not find keyboard device."
     exit 1
 fi
 
-# Check permissions
-if [ ! -r "$DEVICE" ]; then
-    systemd-cat -t nitrobutton-script echo "Error: Cannot read $DEVICE (permission denied)."
+DEVICE="/dev/input/$DEVICE"
+echo "Listening on: $DEVICE"
+
+# Main loop using evtest
+# value 1 = Press
+# value 0 = Release
+if command -v evtest &> /dev/null; then
+    evtest "$DEVICE" | while read -r line; do
+        if [[ "$line" == *"code 425"* ]]; then
+            if [[ "$line" == *"value 1"* ]]; then
+                # Press
+                "$HANDLER_SCRIPT" press &
+            elif [[ "$line" == *"value 0"* ]]; then
+                # Release
+                "$HANDLER_SCRIPT" release &
+            fi
+        fi
+    done
+else
+    echo "Error: 'evtest' not found."
     exit 1
 fi
-
-# Main functionality
-exec evtest "$DEVICE" | grep --line-buffered "code 425.*value 1" | while read -r line; do
-    AcerSense &
-done

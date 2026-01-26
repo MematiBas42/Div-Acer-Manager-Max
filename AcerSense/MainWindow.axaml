@@ -138,6 +138,29 @@
                                 </StackPanel>
                             </Border>
 
+                            <!-- Default Profiles -->
+                            <Border Classes="Card" x:Name="DefaultProfilePanel">
+                                <StackPanel>
+                                    <TextBlock Text="Default Profiles" Classes="SubHeader" />
+                                    <TextBlock Text="Choose which profile to activate automatically when power source changes"
+                                               Opacity="0.7" Margin="0 0 0 10" />
+
+                                    <Grid ColumnDefinitions="*,*" Margin="0 10">
+                                        <StackPanel Grid.Column="0" Margin="0 0 10 0">
+                                            <TextBlock Text="On AC Power:" Margin="0 0 0 5" />
+                                            <ComboBox x:Name="DefaultAcProfileComboBox" HorizontalAlignment="Stretch">
+                                            </ComboBox>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="1" Margin="10 0 0 0">
+                                            <TextBlock Text="On Battery:" Margin="0 0 0 5" />
+                                            <ComboBox x:Name="DefaultBatProfileComboBox" HorizontalAlignment="Stretch">
+                                            </ComboBox>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
                             <!-- Fan Speed Control -->
                             <Border Classes="Card" x:Name="FanControlPanel">
                                 <StackPanel>
@@ -626,6 +649,82 @@
                                                 Margin="0 15 0 0"
                                                 Click="InternalsMangerWindow_OnClick" />
                                     </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- Misc Tab -->
+                <TabItem x:Name="MiscPanel">
+                    <TabItem.Header>
+                        <TextBlock Text="Misc" VerticalAlignment="Center" FontSize="17" Padding="0, 0, 0, 4" />
+                    </TabItem.Header>
+                    <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden">
+                        <StackPanel Margin="10,0,20,0">
+                            <TextBlock Text="Miscellaneous Settings" Classes="SectionHeader" />
+
+                            <!-- Hyprland Integration -->
+                            <Border Classes="Card" x:Name="HyprlandIntegrationControls">
+                                <StackPanel>
+                                    <TextBlock Text="Hyprland Integration" Classes="SubHeader" />
+                                    <TextBlock Text="Automatically manages Hyprland visual effects (Blur/Opacity) based on power source." Opacity="0.7"
+                                               Margin="0 0 0 10" />
+
+                                    <ToggleSwitch x:Name="HyprlandIntegrationToggleSwitch"
+                                                  Content="Enable Hyprland Integration"
+                                                  IsChecked="False" Margin="0 10" />
+                                    <TextBlock Text="Automatically configures Hyprland to support dynamic visuals."
+                                               FontSize="12" Opacity="0.7" Margin="0 5"
+                                               FontStyle="Italic"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Opacity Settings -->
+                            <Border Classes="Card" x:Name="OpacitySettingsPanel">
+                                <StackPanel>
+                                    <TextBlock Text="Hyprland Opacity Settings" Classes="SubHeader" />
+                                    <TextBlock Text="Customize window transparency for different power states"
+                                               Opacity="0.7" Margin="0 0 0 10" />
+
+                                    <Grid ColumnDefinitions="*,*" Margin="0 10">
+                                        <!-- AC Settings -->
+                                        <StackPanel Grid.Column="0" Margin="0 0 10 0">
+                                            <TextBlock Text="On AC Power" FontWeight="SemiBold" Margin="0 0 0 10" />
+                                            
+                                            <TextBlock Text="Active Window:" Margin="0 0 0 5" />
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <Slider x:Name="AcActiveOpacitySlider" Maximum="1.0" Minimum="0.1" TickFrequency="0.01" IsSnapToTickEnabled="True" />
+                                                <TextBlock x:Name="AcActiveOpacityText" Grid.Column="1" Text="0.97" Width="40" TextAlignment="Right" VerticalAlignment="Center"/>
+                                            </Grid>
+
+                                            <TextBlock Text="Inactive Window:" Margin="0 10 0 5" />
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <Slider x:Name="AcInactiveOpacitySlider" Maximum="1.0" Minimum="0.1" TickFrequency="0.01" IsSnapToTickEnabled="True" />
+                                                <TextBlock x:Name="AcInactiveOpacityText" Grid.Column="1" Text="0.95" Width="40" TextAlignment="Right" VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </StackPanel>
+
+                                        <!-- Battery Settings -->
+                                        <StackPanel Grid.Column="1" Margin="20 0 0 0">
+                                            <TextBlock Text="On Battery" FontWeight="SemiBold" Margin="0 0 0 10" />
+                                            
+                                            <TextBlock Text="Active Window:" Margin="0 0 0 5" />
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <Slider x:Name="BatActiveOpacitySlider" Maximum="1.0" Minimum="0.1" TickFrequency="0.01" IsSnapToTickEnabled="True" />
+                                                <TextBlock x:Name="BatActiveOpacityText" Grid.Column="1" Text="1.00" Width="40" TextAlignment="Right" VerticalAlignment="Center"/>
+                                            </Grid>
+
+                                            <TextBlock Text="Inactive Window:" Margin="0 10 0 5" />
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <Slider x:Name="BatInactiveOpacitySlider" Maximum="1.0" Minimum="0.1" TickFrequency="0.01" IsSnapToTickEnabled="True" />
+                                                <TextBlock x:Name="BatInactiveOpacityText" Grid.Column="1" Text="1.00" Width="40" TextAlignment="Right" VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Button x:Name="ApplyOpacityButton" Content="Apply Settings" HorizontalAlignment="Right" Margin="0 10 0 0" Click="ApplyOpacityButton_OnClick"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>

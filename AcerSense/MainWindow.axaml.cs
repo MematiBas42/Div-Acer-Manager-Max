@@ -4,7 +4,10 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -43,9 +46,24 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private TextBlock _daemonVersionText;
     private TextBlock _driverVersionText;
     private Slider _gpuFanSlider;
+    private ComboBox _defaultAcProfileComboBox;
+    private ComboBox _defaultBatProfileComboBox;
     private int _gpuFanSpeed = 70;
+    
+    // Opacity Controls
+    private Slider _acActiveOpacitySlider;
+    private Slider _acInactiveOpacitySlider;
+    private Slider _batActiveOpacitySlider;
+    private Slider _batInactiveOpacitySlider;
+    private TextBlock _acActiveOpacityText;
+    private TextBlock _acInactiveOpacityText;
+    private TextBlock _batActiveOpacityText;
+    private TextBlock _batInactiveOpacityText;
+    private Button _applyOpacityButton;
+
     private TextBlock _gpuFanTextBlock;
     private TextBlock _guiVersionTextBlock;
+    private ToggleSwitch _hyprlandIntegrationToggleSwitch;
     private bool _isCalibrating;
     private bool _isConnected;
     private bool _isManualFanControl;
@@ -121,6 +139,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _performanceProfileButton = nameScope.Find<RadioButton>("PerformanceProfileButton");
         _turboProfileButton = nameScope.Find<RadioButton>("TurboProfileButton");
         _powerToggleSwitch = nameScope.Find<ToggleSwitch>("PluggedInToggleSwitch");
+        _defaultAcProfileComboBox = nameScope.Find<ComboBox>("DefaultAcProfileComboBox");
+        _defaultBatProfileComboBox = nameScope.Find<ComboBox>("DefaultBatProfileComboBox");
 
         // Fan control controls
         _manualFanSpeedRadioButton = nameScope.Find<RadioButton>("ManualFanSpeedRadioButton");
@@ -161,7 +181,19 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         // System settings controls
         _backlightTimeoutCheckBox = nameScope.Find<CheckBox>("BacklightTimeoutCheckBox");
         _lcdOverrideCheckBox = nameScope.Find<CheckBox>("LcdOverrideCheckBox");
+        _hyprlandIntegrationToggleSwitch = nameScope.Find<ToggleSwitch>("HyprlandIntegrationToggleSwitch");
         _bootAnimAndSoundCheckBox = nameScope.Find<CheckBox>("BootAnimAndSoundCheckBox");
+
+        // Opacity Controls
+        _acActiveOpacitySlider = nameScope.Find<Slider>("AcActiveOpacitySlider");
+        _acInactiveOpacitySlider = nameScope.Find<Slider>("AcInactiveOpacitySlider");
+        _batActiveOpacitySlider = nameScope.Find<Slider>("BatActiveOpacitySlider");
+        _batInactiveOpacitySlider = nameScope.Find<Slider>("BatInactiveOpacitySlider");
+        _acActiveOpacityText = nameScope.Find<TextBlock>("AcActiveOpacityText");
+        _acInactiveOpacityText = nameScope.Find<TextBlock>("AcInactiveOpacityText");
+        _batActiveOpacityText = nameScope.Find<TextBlock>("BatActiveOpacityText");
+        _batInactiveOpacityText = nameScope.Find<TextBlock>("BatInactiveOpacityText");
+        _applyOpacityButton = nameScope.Find<Button>("ApplyOpacityButton");
 
         // Info Texts
         _thermalProfileInfoText = nameScope.Find<TextBlock>("ThermalProfileInfoText");
@@ -199,6 +231,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             UpdateUIBasedOnPowerSource();
         }
 
+        if (_defaultAcProfileComboBox != null) _defaultAcProfileComboBox.SelectionChanged += DefaultProfile_SelectionChanged;
+        if (_defaultBatProfileComboBox != null) _defaultBatProfileComboBox.SelectionChanged += DefaultProfile_SelectionChanged;
+
         // Fan control handlers
         if (_manualFanSpeedRadioButton != null) _manualFanSpeedRadioButton.Click += ManualFanControlRadioBox_Click;
         if (_cpuFanSlider != null) _cpuFanSlider.PropertyChanged += CpuFanSlider_ValueChanged;
@@ -223,7 +258,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         // System settings handlers
         if (_backlightTimeoutCheckBox != null) _backlightTimeoutCheckBox.Click += BacklightTimeoutCheckBox_Click;
         if (_lcdOverrideCheckBox != null) _lcdOverrideCheckBox.Click += LcdOverrideCheckBox_Click;
+        if (_hyprlandIntegrationToggleSwitch != null)
+            _hyprlandIntegrationToggleSwitch.PropertyChanged += HyprlandIntegration_Toggled;
         if (_bootAnimAndSoundCheckBox != null) _bootAnimAndSoundCheckBox.Click += BootSoundCheckBox_Click;
+
+        if (_acActiveOpacitySlider != null) _acActiveOpacitySlider.PropertyChanged += OpacitySlider_ValueChanged;
+        if (_acInactiveOpacitySlider != null) _acInactiveOpacitySlider.PropertyChanged += OpacitySlider_ValueChanged;
+        if (_batActiveOpacitySlider != null) _batActiveOpacitySlider.PropertyChanged += OpacitySlider_ValueChanged;
+        if (_batInactiveOpacitySlider != null) _batInactiveOpacitySlider.PropertyChanged += OpacitySlider_ValueChanged;
+        if (_applyOpacityButton != null) _applyOpacityButton.Click += ApplyOpacityButton_OnClick;
     }
 
     private void UpdateUIElementVisibility()
@@ -285,6 +328,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
             var backlightControls = nameScope.Find<Border>("BacklightTimeoutControls");
             var lcdControls = nameScope.Find<Border>("LcdOverrideControls");
+            var hyprlandControls = nameScope.Find<Border>("HyprlandIntegrationControls");
             var bootSoundControls = nameScope.Find<Border>("BootSoundControls");
 
             if (backlightControls != null)
@@ -292,6 +336,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
             if (lcdControls != null)
                 lcdControls.IsVisible = _client.IsFeatureAvailable("lcd_override") || AppState.DevMode;
+
+            if (hyprlandControls != null)
+                hyprlandControls.IsVisible = true; // Always available as it is a software feature
 
             if (bootSoundControls != null)
                 bootSoundControls.IsVisible = _client.IsFeatureAvailable("boot_animation_sound") || AppState.DevMode;
@@ -334,6 +381,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 _daemonErrorGrid.IsVisible = false;
                 await LoadSettingsAsync();
+                await CheckForUpdatesAsync();
             }
             else
             {
@@ -347,6 +395,46 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             await ShowMessageBox("Error while initializing", $"Error initializing: {ex.Message}");
             _daemonErrorGrid.IsVisible = true;
+        }
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("AcerSense", ProjectVersion));
+            
+            // Set timeout to avoid blocking startup for too long
+            client.Timeout = TimeSpan.FromSeconds(5);
+
+            var response = await client.GetAsync("https://api.github.com/repos/MematiBas42/Div-Acer-Manager-Max/releases/latest");
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("tag_name", out var tagNameElement))
+                {
+                    var latestVersion = tagNameElement.GetString()?.TrimStart('v');
+                    if (latestVersion != null && latestVersion != ProjectVersion)
+                    {
+                        var box = MessageBoxManager.GetMessageBoxStandard(
+                            "Update Available", 
+                            $"A new version ({latestVersion}) is available.\nCurrent: {ProjectVersion}\n\nDo you want to update?",
+                            MsBox.Avalonia.Enums.ButtonEnum.YesNo);
+                        
+                        var result = await box.ShowWindowDialogAsync(this);
+                        if (result == MsBox.Avalonia.Enums.ButtonResult.Yes)
+                        {
+                            UpdateButton_OnClick(null, null);
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Fail silently on startup
         }
     }
 
@@ -428,6 +516,52 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         UpdateProfileButtons();
 
+        // Dynamically populate default profile comboboxes
+        if (_defaultAcProfileComboBox != null && _defaultBatProfileComboBox != null && _settings.ThermalProfile != null)
+        {
+            var acItems = new List<ComboBoxItem>();
+            var batItems = new List<ComboBoxItem>();
+
+            foreach (var profile in _settings.ThermalProfile.Available)
+            {
+                var displayName = profile switch
+                {
+                    "low-power" => "Eco",
+                    "quiet" => "Quiet",
+                    "balanced" => "Balanced",
+                    "balanced-performance" => "Performance",
+                    "performance" => "Turbo",
+                    _ => char.ToUpper(profile[0]) + profile.Substring(1)
+                };
+
+                var acItem = new ComboBoxItem { Content = displayName, Tag = profile };
+                var batItem = new ComboBoxItem { Content = displayName, Tag = profile };
+                
+                acItems.Add(acItem);
+                batItems.Add(batItem);
+            }
+
+            // Temporarily detach events to prevent triggering selection change
+            _defaultAcProfileComboBox.SelectionChanged -= DefaultProfile_SelectionChanged;
+            _defaultBatProfileComboBox.SelectionChanged -= DefaultProfile_SelectionChanged;
+
+            _defaultAcProfileComboBox.Items.Clear();
+            _defaultBatProfileComboBox.Items.Clear();
+
+            foreach (var item in acItems) _defaultAcProfileComboBox.Items.Add(item);
+            foreach (var item in batItems) _defaultBatProfileComboBox.Items.Add(item);
+
+            // Select current defaults
+            _defaultAcProfileComboBox.SelectedItem = _defaultAcProfileComboBox.Items
+                .OfType<ComboBoxItem>().FirstOrDefault(i => i.Tag?.ToString() == _settings.DefaultAcProfile);
+            
+            _defaultBatProfileComboBox.SelectedItem = _defaultBatProfileComboBox.Items
+                .OfType<ComboBoxItem>().FirstOrDefault(i => i.Tag?.ToString() == _settings.DefaultBatProfile);
+
+            _defaultAcProfileComboBox.SelectionChanged += DefaultProfile_SelectionChanged;
+            _defaultBatProfileComboBox.SelectionChanged += DefaultProfile_SelectionChanged;
+        }
+
         if (_backlightTimeoutCheckBox != null)
             _backlightTimeoutCheckBox.IsChecked =
                 (_settings.BacklightTimeout ?? "0").Equals("1", StringComparison.OrdinalIgnoreCase);
@@ -450,6 +584,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (_lcdOverrideCheckBox != null)
             _lcdOverrideCheckBox.IsChecked =
                 (_settings.LcdOverride ?? "0").Equals("1", StringComparison.OrdinalIgnoreCase);
+
+        if (_hyprlandIntegrationToggleSwitch != null)
+            _hyprlandIntegrationToggleSwitch.IsChecked = _settings.HyprlandIntegration;
+
+        if (_acActiveOpacitySlider != null) _acActiveOpacitySlider.Value = _settings.AcActiveOpacity;
+        if (_acInactiveOpacitySlider != null) _acInactiveOpacitySlider.Value = _settings.AcInactiveOpacity;
+        if (_batActiveOpacitySlider != null) _batActiveOpacitySlider.Value = _settings.BatActiveOpacity;
+        if (_batInactiveOpacitySlider != null) _batInactiveOpacitySlider.Value = _settings.BatInactiveOpacity;
+
+        // Text blocks will update via PropertyChanged event, or we can force set them here
+        if (_acActiveOpacityText != null) _acActiveOpacityText.Text = $"{_settings.AcActiveOpacity:F2}";
+        if (_acInactiveOpacityText != null) _acInactiveOpacityText.Text = $"{_settings.AcInactiveOpacity:F2}";
+        if (_batActiveOpacityText != null) _batActiveOpacityText.Text = $"{_settings.BatActiveOpacity:F2}";
+        if (_batInactiveOpacityText != null) _batInactiveOpacityText.Text = $"{_settings.BatInactiveOpacity:F2}";
 
         if (_usbChargingComboBox != null)
         {
@@ -605,19 +753,19 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void UpdateButton_OnClick(object? sender, RoutedEventArgs e)
     {
-        Process.Start(new ProcessStartInfo("xdg-open", "https://github.com/kleqing/AcerSense/releases")
+        Process.Start(new ProcessStartInfo("xdg-open", "https://github.com/MematiBas42/Div-Acer-Manager-Max/releases")
             { UseShellExecute = true });
     }
 
     private void StarProject_OnClick(object? sender, RoutedEventArgs e)
     {
-        Process.Start(new ProcessStartInfo("xdg-open", "https://github.com/kleqing/AcerSense/")
+        Process.Start(new ProcessStartInfo("xdg-open", "https://github.com/MematiBas42/Div-Acer-Manager-Max")
             { UseShellExecute = true });
     }
 
     private void IssuePageButton_OnClick(object? sender, RoutedEventArgs e)
     {
-        Process.Start(new ProcessStartInfo("xdg-open", "https://github.com/kleqing/AcerSense/issues")
+        Process.Start(new ProcessStartInfo("xdg-open", "https://github.com/MematiBas42/Div-Acer-Manager-Max/issues")
             { UseShellExecute = true });
     }
 
@@ -676,6 +824,19 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         await Task.Delay(1000);
         await LoadSettingsAsync();
+    }
+
+    private async void DefaultProfile_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (!_isConnected || sender is not ComboBox comboBox || comboBox.SelectedItem is not ComboBoxItem item) return;
+
+        var source = comboBox.Name == "DefaultAcProfileComboBox" ? "ac" : "bat";
+        var profile = item.Tag?.ToString();
+
+        if (!string.IsNullOrEmpty(profile))
+        {
+            await _client.SetDefaultProfilePreferenceAsync(source, profile);
+        }
     }
 
     private void ManualFanControlRadioBox_Click(object sender, RoutedEventArgs e)
@@ -818,6 +979,39 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         if (_isConnected && sender is CheckBox checkBox)
             await _client.SetLcdOverrideAsync(checkBox.IsChecked ?? false);
+    }
+
+    private async void HyprlandIntegration_Toggled(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property.Name == "IsChecked" && _isConnected && sender is ToggleSwitch toggleSwitch)
+        {
+            await _client.SetHyprlandIntegrationAsync(toggleSwitch.IsChecked ?? false);
+        }
+    }
+
+    private void OpacitySlider_ValueChanged(object sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == Slider.ValueProperty && sender is Slider slider)
+        {
+            var val = slider.Value;
+            if (slider == _acActiveOpacitySlider && _acActiveOpacityText != null) _acActiveOpacityText.Text = $"{val:F2}";
+            else if (slider == _acInactiveOpacitySlider && _acInactiveOpacityText != null) _acInactiveOpacityText.Text = $"{val:F2}";
+            else if (slider == _batActiveOpacitySlider && _batActiveOpacityText != null) _batActiveOpacityText.Text = $"{val:F2}";
+            else if (slider == _batInactiveOpacitySlider && _batInactiveOpacityText != null) _batInactiveOpacityText.Text = $"{val:F2}";
+        }
+    }
+
+    private async void ApplyOpacityButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_isConnected)
+        {
+            await _client.SetHyprlandOpacitySettingsAsync(
+                _acActiveOpacitySlider?.Value ?? 0.97,
+                _acInactiveOpacitySlider?.Value ?? 0.95,
+                _batActiveOpacitySlider?.Value ?? 1.0,
+                _batInactiveOpacitySlider?.Value ?? 1.0
+            );
+        }
     }
 
     private async void BootSoundCheckBox_Click(object sender, RoutedEventArgs e)

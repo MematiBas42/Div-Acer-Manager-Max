@@ -16,6 +16,7 @@ import signal
 import configparser
 import traceback
 import glob
+import pwd
 from pathlib import Path
 from enum import Enum
 from PowerSourceDetection import PowerSourceDetector 
@@ -109,7 +110,90 @@ class AcerSenseManager:
         self.last_known_profile = self.get_thermal_profile()
 
         # Apply the correct default profile immediately and synchronously on startup
+        self._load_defaults()
         self._apply_initial_profile()
+
+    def _load_defaults(self):
+        """Load default profile preferences and opacity settings from config"""
+        self.default_ac_profile = "balanced"
+        self.default_bat_profile = "low-power"
+        
+        # Opacity defaults
+        self.ac_active_opacity = 0.97
+        self.ac_inactive_opacity = 0.95
+        self.bat_active_opacity = 1.0
+        self.bat_inactive_opacity = 1.0
+        
+        try:
+            if os.path.exists(CONFIG_PATH):
+                config = configparser.ConfigParser()
+                config.read(CONFIG_PATH)
+                if 'General' in config:
+                    self.default_ac_profile = config['General'].get('DefaultAcProfile', "balanced")
+                    self.default_bat_profile = config['General'].get('DefaultBatProfile', "low-power")
+                    self.hyprland_integration = config['General'].getboolean('HyprlandIntegration', fallback=False)
+                    
+                    self.ac_active_opacity = config['General'].getfloat('AcActiveOpacity', 0.97)
+                    self.ac_inactive_opacity = config['General'].getfloat('AcInactiveOpacity', 0.95)
+                    self.bat_active_opacity = config['General'].getfloat('BatActiveOpacity', 1.0)
+                    self.bat_inactive_opacity = config['General'].getfloat('BatInactiveOpacity', 1.0)
+        except Exception as e:
+            log.error(f"Failed to load defaults: {e}")
+
+    def set_hyprland_opacity_settings(self, ac_active: float, ac_inactive: float, bat_active: float, bat_inactive: float) -> bool:
+        """Set Hyprland opacity settings"""
+        try:
+            self.ac_active_opacity = ac_active
+            self.ac_inactive_opacity = ac_inactive
+            self.bat_active_opacity = bat_active
+            self.bat_inactive_opacity = bat_inactive
+            
+            config = configparser.ConfigParser()
+            config.read(CONFIG_PATH)
+            if 'General' not in config:
+                config['General'] = {}
+            
+            config['General']['AcActiveOpacity'] = str(ac_active)
+            config['General']['AcInactiveOpacity'] = str(ac_inactive)
+            config['General']['BatActiveOpacity'] = str(bat_active)
+            config['General']['BatInactiveOpacity'] = str(bat_inactive)
+            
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+            
+            log.info("Updated Hyprland opacity settings")
+            # Apply immediately based on current profile
+            self._update_hyprland_visuals(self.last_known_profile)
+            return True
+        except Exception as e:
+            log.error(f"Failed to save opacity settings: {e}")
+            return False
+
+    def set_default_profile_preference(self, source: str, profile: str) -> bool:
+        """Set default profile for AC or Battery"""
+        try:
+            config = configparser.ConfigParser()
+            config.read(CONFIG_PATH)
+            if 'General' not in config:
+                config['General'] = {}
+
+            if source == "ac":
+                self.default_ac_profile = profile
+                config['General']['DefaultAcProfile'] = profile
+            elif source == "bat":
+                self.default_bat_profile = profile
+                config['General']['DefaultBatProfile'] = profile
+            else:
+                return False
+
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+            
+            log.info(f"Updated default profile for {source} to {profile}")
+            return True
+        except Exception as e:
+            log.error(f"Failed to save default profile: {e}")
+            return False
 
     def _apply_initial_profile(self):
         """Applies the default thermal profile based on the current power source at startup."""
@@ -119,7 +203,7 @@ class AcerSenseManager:
             is_ac = self._read_file(is_ac_online_path) == "1" if is_ac_online_path else False
             
             profile_list = self.get_thermal_profile_choices()
-            target_profile = "quiet" if is_ac else "low-power"
+            target_profile = self.default_ac_profile if is_ac else self.default_bat_profile
 
             if target_profile in profile_list:
                 log.info(f"Setting initial default profile to: {target_profile}")
@@ -474,19 +558,483 @@ class AcerSenseManager:
         return self._read_file("/sys/firmware/acpi/platform_profile")
 
     def set_thermal_profile(self, profile: str) -> bool:
-        """Set thermal profile"""
+        """Set thermal profile with validation and fallback"""
         if "thermal_profile" not in self.available_features:
             return False
 
         available_profiles = self.get_thermal_profile_choices()
+        
+        # Handle mapping/fallback if profile not directly supported
         if profile not in available_profiles:
-            log.error(f"Invalid thermal profile: {profile}. Available profiles: {available_profiles}")
-            return False
+            log.warning(f"Profile '{profile}' not supported by hardware. Attempting fallback...")
+            if profile == "balanced-performance":
+                if "performance" in available_profiles:
+                    profile = "performance"
+                elif "balanced" in available_profiles:
+                    profile = "balanced"
+            elif profile == "quiet":
+                if "low-power" in available_profiles:
+                    profile = "low-power"
+            
+            # Final check
+            if profile not in available_profiles:
+                log.error(f"Cannot map profile '{profile}' to any available choice: {available_profiles}")
+                return False
+            
+            log.info(f"Mapped to valid profile: {profile}")
 
         success = self._write_file("/sys/firmware/acpi/platform_profile", profile)
         if success:
             self.last_known_profile = profile # Update internal state immediately
+            self._update_hyprland_visuals(profile)
+            self._apply_profile_optimizations(profile)
         return success
+
+    def _apply_profile_optimizations(self, profile: str):
+        """Apply advanced power optimizations (CPU EPP, WiFi, Turbo) based on profile"""
+        try:
+            # 1. Detect Power Source
+            is_ac = False
+            # Check standard paths
+            for p in ["/sys/class/power_supply/AC/online", "/sys/class/power_supply/ACAD/online", "/sys/class/power_supply/ADP1/online", "/sys/class/power_supply/AC0/online"]:
+                if os.path.exists(p) and self._read_file(p) == "1":
+                    is_ac = True
+                    break
+            
+            # 2. Determine Settings
+            epp = "balance_performance"
+            wifi_power = "off"
+            turbo = "0" # 0 = Enabled, 1 = Disabled
+            
+            if is_ac:
+                if profile == "quiet":
+                    epp = "balance_power"
+                elif profile == "balanced":
+                    epp = "balance_performance"
+                elif profile in ["performance", "balanced-performance"]:
+                    epp = "performance"
+            else: # Battery
+                wifi_power = "on"
+                if profile == "balanced":
+                    epp = "balance_power"
+                elif profile == "low-power":
+                    epp = "power"
+                    turbo = "1" # Disable Turbo for max savings
+
+            log.info(f"Applying Optimizations -> Profile: {profile}, AC: {is_ac}, EPP: {epp}, WiFi: {wifi_power}, Turbo: {'Off' if turbo=='1' else 'On'}")
+
+            # 3. Apply CPU EPP (Energy Performance Preference)
+            # AMD systems use 'scaling_governor' or separate EPP file usually.
+            # Intel systems use 'energy_performance_preference'.
+            # We try to apply to all CPUs
+            cpus = glob.glob("/sys/devices/system/cpu/cpu[0-9]*")
+            for cpu in cpus:
+                epp_path = os.path.join(cpu, "cpufreq/energy_performance_preference")
+                if os.path.exists(epp_path):
+                    try:
+                        with open(epp_path, 'w') as f:
+                            f.write(epp)
+                    except IOError:
+                        pass # Some governors don't support EPP
+
+            # 4. Apply Turbo Boost (Intel P-State)
+            no_turbo_path = "/sys/devices/system/cpu/intel_pstate/no_turbo"
+            if os.path.exists(no_turbo_path):
+                try:
+                    with open(no_turbo_path, 'w') as f:
+                        f.write(turbo)
+                except IOError as e:
+                    log.warning(f"Failed to set Turbo Boost: {e}")
+
+            # 5. Apply WiFi Power Save
+            # Find wireless interfaces
+            try:
+                interfaces = os.listdir("/sys/class/net")
+                for iface in interfaces:
+                    # Check if wireless (wlan0, wlp*, etc)
+                    if iface.startswith("wl"):
+                        subprocess.run(["iw", "dev", iface, "set", "power_save", wifi_power], 
+                                     check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as e:
+                log.warning(f"Failed to set WiFi power save: {e}")
+
+            # --- Advanced System Optimizations (TLP Replacement) ---
+            
+            # 6. Audio Power Save (snd_hda_intel)
+            audio_power = "1" if not is_ac or profile == "quiet" else "0"
+            self._write_file_safe("/sys/module/snd_hda_intel/parameters/power_save", audio_power)
+            
+            # 7. NMI Watchdog (Disable on battery to save CPU wakeups)
+            nmi_watchdog = "1" if is_ac else "0"
+            self._write_file_safe("/proc/sys/kernel/nmi_watchdog", nmi_watchdog)
+
+            # 8. VM Writeback Timeout (Longer on battery to keep disk asleep)
+            # 1500 (15s) on AC, 6000 (60s) on Battery
+            vm_writeback = "1500" if is_ac else "6000"
+            self._write_file_safe("/proc/sys/vm/dirty_writeback_centisecs", vm_writeback)
+
+            # 9. PCIe ASPM (Active State Power Management)
+            # 'default' (BIOS) on AC, 'powersave' on Battery
+            # Note: Some systems might not allow changing this at runtime
+            aspm_policy = "default" if is_ac else "powersave"
+            self._write_file_safe("/sys/module/pcie_aspm/parameters/policy", aspm_policy)
+
+            # 10. SATA/AHCI Link Power Management
+            # 'max_performance' on AC, 'med_power_with_dipm' on Battery
+            sata_policy = "max_performance" if is_ac else "med_power_with_dipm"
+            sata_hosts = glob.glob("/sys/class/scsi_host/host*/link_power_management_policy")
+            for host in sata_hosts:
+                self._write_file_safe(host, sata_policy)
+
+            # 11. USB Autosuspend (usbcore)
+            # -1 = Disabled, 2 = Enable (2 seconds delay)
+            usb_autosuspend = "-1" if is_ac else "2"
+            self._write_file_safe("/sys/module/usbcore/parameters/autosuspend", usb_autosuspend)
+
+        except Exception as e:
+            log.error(f"Error applying optimizations: {e}")
+            log.error(traceback.format_exc())
+
+    def _write_file_safe(self, path, value):
+        """Helper to write to a file only if it exists, suppressing errors"""
+        if os.path.exists(path):
+            try:
+                with open(path, 'w') as f:
+                    f.write(value)
+            except IOError:
+                pass # Permission denied or immutable
+
+    def _get_hyprland_info(self):
+        """Find the active Hyprland instance signature, user, and Wayland display dynamically"""
+        base_run_dir = "/run/user"
+        if not os.path.exists(base_run_dir):
+            return None, None, None
+
+        for user_dir in os.listdir(base_run_dir):
+            if not user_dir.isdigit():
+                continue
+            
+            uid = int(user_dir)
+            user_run_path = os.path.join(base_run_dir, user_dir)
+            hypr_dir = os.path.join(user_run_path, "hypr")
+            
+            # Find WAYLAND_DISPLAY
+            wayland_display = None
+            try:
+                # Look for wayland-0, wayland-1, etc.
+                for item in os.listdir(user_run_path):
+                    if item.startswith("wayland-") and os.path.exists(os.path.join(user_run_path, item)) and "lock" not in item:
+                         # Simple heuristic: pick the first one that looks like a socket
+                         wayland_display = item
+                         break
+            except OSError:
+                pass
+
+            if os.path.isdir(hypr_dir):
+                # Search for signature directories within this user's hypr dir
+                for item in os.listdir(hypr_dir):
+                    signature_path = os.path.join(hypr_dir, item)
+                    if os.path.isdir(signature_path) and "." not in item:
+                        try:
+                            contents = os.listdir(signature_path)
+                            if any(x.endswith(".sock") for x in contents):
+                                # Found it!
+                                try:
+                                    username = pwd.getpwuid(uid).pw_name
+                                    log.info(f"Found active Hyprland instance: User={username}, Sig={item}, Display={wayland_display}")
+                                    return username, item, wayland_display
+                                except KeyError:
+                                    continue
+                        except OSError:
+                            continue
+        
+        log.warning("No active Hyprland instance found.")
+        return None, None, None
+
+    def _write_user_file_atomically(self, path: str, content: list, uid: int, gid: int) -> bool:
+        """
+        Securely and atomically write a file for a user.
+        Handles symlinks by verifying ownership of the target file.
+        """
+        try:
+            target_path = path
+
+            # 1. Security Check: Symlink Handling
+            if os.path.islink(path):
+                # Resolve the symlink to the real path
+                real_path = os.path.realpath(path)
+                
+                # Get stats of the real path
+                try:
+                    file_stat = os.stat(real_path)
+                except OSError:
+                    log.error(f"Cannot stat target of symlink {path}. Aborting.")
+                    return False
+
+                # SECURITY: Check if the target file is owned by the user we are writing for.
+                # This prevents attacks where a user symlinks to a root-owned file (like /etc/shadow).
+                if file_stat.st_uid != uid:
+                    log.error(f"SECURITY ALERT: Symlink {path} points to {real_path} which is NOT owned by user {uid}. Aborting.")
+                    return False
+                
+                log.debug(f"Followed safe symlink: {path} -> {real_path}")
+                target_path = real_path
+
+            # 2. Prepare Temp File (create it alongside the target to ensure same filesystem)
+            tmp_path = target_path + ".tmp"
+            
+            # 3. Write to Temp File
+            with open(tmp_path, 'w') as f:
+                if isinstance(content, list):
+                    f.writelines(content)
+                else:
+                    f.write(content)
+            
+            # 4. Set Permissions on Temp File
+            os.chown(tmp_path, uid, gid)
+            os.chmod(tmp_path, 0o644) 
+
+            # 5. Atomic Move
+            os.replace(tmp_path, target_path)
+            return True
+
+        except Exception as e:
+            log.error(f"Failed to write file atomically to {path}: {e}")
+            if 'tmp_path' in locals() and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
+            return False
+
+    def _get_user_config_dir(self, user_home: str) -> str:
+        """Get the config directory respecting XDG_CONFIG_HOME"""
+        # Since we run as root, we can't trust os.environ directly for the target user.
+        # We assume standard locations relative to user_home unless we want to parse their shell env (too complex).
+        # Standard fallback is reliable enough for this context.
+        return os.path.join(user_home, ".config")
+
+    def _ensure_aux_config_files(self, user_home, uid, gid):
+        """Create auxiliary config files (bat/charge) if they don't exist"""
+        config_dir = os.path.join(self._get_user_config_dir(user_home), "hypr")
+        
+        # 1. Battery Config
+        bat_path = os.path.join(config_dir, "acersense_bat.conf")
+        if not os.path.exists(bat_path):
+            content = (
+                "# AcerSense - Battery Mode Settings\n"
+                "# This file is automatically sourced when the device is on BATTERY power.\n"
+                "# You can edit this file to customize visuals (Blur, Shadows, Animations) for power saving.\n"
+                "\n"
+                "decoration {\n"
+                "    blur {\n"
+                "        enabled = false\n"
+                "    }\n"
+                "    # drop_shadow = false\n"
+                "}\n"
+                "\n"
+                "# Note: Window Opacity is managed dynamically by the AcerSense App slider.\n"
+            )
+            if self._write_user_file_atomically(bat_path, content, uid, gid):
+                log.info("Created default acersense_bat.conf")
+
+        # 2. Charge/Performance Config
+        charge_path = os.path.join(config_dir, "acersense_charge.conf")
+        if not os.path.exists(charge_path):
+            content = (
+                "# AcerSense - Charging/Performance Mode Settings\n"
+                "# This file is automatically sourced when the device is PLUGGED IN.\n"
+                "# You can edit this file to customize visuals (Blur, Shadows, Animations) for high performance.\n"
+                "\n"
+                "decoration {\n"
+                "    blur {\n"
+                "        enabled = true\n"
+                "        size = 8\n"
+                "        passes = 2\n"
+                "    }\n"
+                "    # drop_shadow = true\n"
+                "}\n"
+                "\n"
+                "# Note: Window Opacity is managed dynamically by the AcerSense App slider.\n"
+            )
+            if self._write_user_file_atomically(charge_path, content, uid, gid):
+                log.info("Created default acersense_charge.conf")
+
+    def _update_hyprland_visuals(self, profile: str):
+        """Update the main acersense.conf to source the correct aux file and set opacity"""
+        
+        target_user, signature, _ = self._get_hyprland_info()
+        if not target_user:
+            return
+
+        try:
+            # Get User Home and UID/GID
+            user_info = pwd.getpwnam(target_user)
+            user_home = user_info.pw_dir
+            uid = user_info.pw_uid
+            gid = user_info.pw_gid
+            
+            # Ensure aux files exist first (safe to call repeatedly)
+            self._ensure_aux_config_files(user_home, uid, gid)
+            
+            # Target config file (The Manager)
+            config_dir = os.path.join(self._get_user_config_dir(user_home), "hypr")
+            config_path = os.path.join(config_dir, "acersense.conf")
+            
+            # Ensure directory exists
+            if not os.path.exists(config_dir):
+                return
+                
+            # Content generation
+            content = []
+            content.append("# AUTO-GENERATED by AcerSense. DO NOT EDIT THIS FILE MANUALLY.\n")
+            content.append("# This file switches between _bat.conf and _charge.conf based on power state.\n")
+            content.append("# To customize visuals, edit 'acersense_bat.conf' or 'acersense_charge.conf'.\n\n")
+            
+            # Determine mode based on profile
+            is_high_perf = profile in ["balanced", "balanced-performance", "performance", "turbo"]
+            
+            if is_high_perf:
+                active = self.ac_active_opacity
+                inactive = self.ac_inactive_opacity
+                source_file = "acersense_charge.conf"
+            else:
+                active = self.bat_active_opacity
+                inactive = self.bat_inactive_opacity
+                source_file = "acersense_bat.conf"
+
+            # 1. Source the appropriate environment file
+            # We use absolute path or ~ relative if we are sure, but relative to config is safer for portability if user moves home (rare)
+            # Standard Hyprland: source = ~/.config/hypr/file.conf
+            content.append(f"source = ~/.config/hypr/{source_file}\n\n")
+            
+            # 2. Write Dynamic Opacity Rules (Managed by App)
+            content.append(f"# Dynamic Opacity Rules (Managed by App)\n")
+            content.append(f"windowrule = match:class .*, opacity {active} override {inactive} override\n")
+            
+            log.info(f"Updating Hyprland Config -> Sourcing: {source_file}, Opacity: {active}/{inactive}")
+
+            # Secure Write
+            if self._write_user_file_atomically(config_path, content, uid, gid):
+                # Reload Hyprland
+                cmd = [
+                    "sudo", "-u", target_user, 
+                    "env", 
+                    f"XDG_RUNTIME_DIR=/run/user/{uid}", 
+                    f"HYPRLAND_INSTANCE_SIGNATURE={signature}", 
+                    "hyprctl", "reload"
+                ]
+                
+                subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                log.debug("Triggered Hyprland reload")
+
+        except Exception as e:
+            log.error(f"Failed to update Hyprland visuals: {e}")
+
+    def _ensure_hyprland_config_source(self):
+        """Ensure that acersense.conf is sourced in the main Hyprland config"""
+        target_user, _, _ = self._get_hyprland_info()
+        if not target_user:
+            return
+
+        try:
+            user_info = pwd.getpwnam(target_user)
+            user_home = user_info.pw_dir
+            uid = user_info.pw_uid
+            gid = user_info.pw_gid
+            
+            config_dir = os.path.join(self._get_user_config_dir(user_home), "hypr")
+            hypr_config_path = os.path.join(config_dir, "hyprland.conf")
+            source_line = "source = ~/.config/hypr/acersense.conf\n"
+            
+            if not os.path.exists(hypr_config_path):
+                return
+
+            # Note: We don't use atomic write here because we are APPENDING to a user-owned file 
+            # that might be symlinked intentionally by the user (dotfiles managers like stow).
+            # However, we should still check ownership to ensure we aren't writing to root-owned file in user home.
+            
+            if os.path.islink(hypr_config_path):
+                # If it's a symlink, resolving it to real path is usually safer, 
+                # but for now we just append if the target is writable.
+                pass
+
+            with open(hypr_config_path, 'r') as f:
+                content = f.read()
+                
+            if "acersense.conf" not in content:
+                log.info("Injecting source line into hyprland.conf")
+                with open(hypr_config_path, 'a') as f:
+                    if content and not content.endswith('\n'):
+                        f.write('\n')
+                    f.write(f"\n# Added by AcerSense for Opacity/Blur control\n{source_line}")
+                # We do not chown here because we appended, file ownership shouldn't change.
+                
+        except Exception as e:
+            log.error(f"Failed to ensure Hyprland config source: {e}")
+
+    def _remove_hyprland_config_source(self):
+        """Remove the source line from Hyprland config using sed (Direct & Reliable)"""
+        target_user, _, _ = self._get_hyprland_info()
+        if not target_user:
+            log.warning("Cannot remove Hyprland config source: No active user found.")
+            return
+
+        try:
+            user_info = pwd.getpwnam(target_user)
+            user_home = user_info.pw_dir
+            uid = user_info.pw_uid
+            gid = user_info.pw_gid
+            
+            config_dir = os.path.join(self._get_user_config_dir(user_home), "hypr")
+            hypr_config_path = os.path.join(config_dir, "hyprland.conf")
+            
+            if not os.path.exists(hypr_config_path):
+                log.warning(f"Hyprland config not found at {hypr_config_path}")
+                return
+
+            log.info("Removing source line and comments from hyprland.conf using sed...")
+
+            # 1. Delete lines containing "source" AND "acersense.conf"
+            # Using sed -i which edits in place
+            subprocess.run(["sed", "-i", "/source.*acersense.conf/d", hypr_config_path], check=True)
+            
+            # 2. Delete lines containing "Added by AcerSense"
+            subprocess.run(["sed", "-i", "/Added by AcerSense/d", hypr_config_path], check=True)
+            
+            # 3. Ensure ownership is correct (sed might change it to root if not careful, though usually preserves)
+            os.chown(hypr_config_path, uid, gid)
+            
+            # 4. Reload Hyprland
+            signature = self._get_hyprland_info()[1]
+            if signature:
+                subprocess.run(["sudo", "-u", target_user, "env", 
+                              f"XDG_RUNTIME_DIR=/run/user/{uid}", 
+                              f"HYPRLAND_INSTANCE_SIGNATURE={signature}", 
+                              "hyprctl", "reload"], 
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                log.info("Hyprland config cleaned and reloaded.")
+
+        except Exception as e:
+            log.error(f"Failed to remove Hyprland config source: {e}")
+
+    def set_hyprland_integration(self, enabled: bool) -> bool:
+        """Set Hyprland integration status"""
+        try:
+            log.info(f"Hyprland integration set to: {enabled}")
+            
+            if enabled:
+                log.info("Enabling Hyprland integration logic...")
+                self._ensure_hyprland_config_source()
+                self._update_hyprland_visuals(self.last_known_profile)
+            else:
+                log.info("Disabling Hyprland integration logic (Calling Remove)...")
+                self._remove_hyprland_config_source()
+            
+            return True
+        except Exception as e:
+            log.error(f"Failed to set Hyprland integration: {e}")
+            return False
 
     def get_thermal_profile_choices(self) -> List[str]:
         """Get available thermal profiles"""
@@ -503,15 +1051,32 @@ class AcerSenseManager:
         profile_list = self.get_thermal_profile_choices()
         
         if is_plugged_in:
-            target_profile = "quiet"
+            target_profile = self.default_ac_profile
         else:
-            target_profile = "low-power"
+            target_profile = self.default_bat_profile
+
+        # Immediately update visuals to prevent lag/flicker
+        # If we are unplugged, force opaque immediately even before setting profile
+        self._update_hyprland_visuals(target_profile)
 
         if target_profile in profile_list:
             log.info(f"Setting default profile to: {target_profile}")
             self.set_thermal_profile(target_profile)
+            
+            # Schedule a retry chain to enforce the profile (Total 3 attempts over 4-6 seconds)
+            threading.Timer(2.0, lambda: self._enforce_profile(target_profile, retries=2)).start()
         else:
             log.warning(f"Default profile '{target_profile}' not available. Skipping auto-switch.")
+
+    def _enforce_profile(self, profile, retries=0):
+        """Retry setting profile and visuals to ensure it sticks"""
+        log.info(f"Enforcing profile: {profile} (Retries left: {retries})")
+        # Re-apply everything
+        self.set_thermal_profile(profile)
+        self._update_hyprland_visuals(profile)
+        
+        if retries > 0:
+             threading.Timer(2.0, lambda: self._enforce_profile(profile, retries - 1)).start()
 
     def get_backlight_timeout(self) -> str:
         """Get backlight timeout status"""
@@ -743,6 +1308,95 @@ class AcerSenseManager:
             value
         )
 
+    def get_hyprland_integration(self) -> bool:
+        """Get Hyprland integration status"""
+        return getattr(self, 'hyprland_integration', False)
+
+    def _ensure_hyprland_config_source(self):
+        """Ensure that the acersense.conf is sourced in the main Hyprland config"""
+        target_user, _, _ = self._get_hyprland_info()
+        if not target_user:
+            return
+
+        try:
+            # Get User Home
+            user_info = pwd.getpwnam(target_user)
+            user_home = user_info.pw_dir
+            uid = user_info.pw_uid
+            gid = user_info.pw_gid
+            
+            # Paths
+            hypr_config_path = os.path.join(user_home, ".config/hypr/hyprland.conf")
+            source_line = "source = ~/.config/hypr/acersense.conf\n"
+            
+            if not os.path.exists(hypr_config_path):
+                log.warning(f"Main Hyprland config not found at {hypr_config_path}")
+                return
+
+            # Check if source line exists
+            with open(hypr_config_path, 'r') as f:
+                content = f.read()
+                
+            if "acersense.conf" not in content:
+                log.info("Injecting source line into hyprland.conf")
+                
+                # Append to file
+                with open(hypr_config_path, 'a') as f:
+                    if not content.endswith('\n'):
+                        f.write('\n')
+                    f.write(f"\n# Added by AcerSense for Opacity/Blur control\n{source_line}")
+                
+                # Ensure ownership is correct
+                os.chown(hypr_config_path, uid, gid)
+                
+        except Exception as e:
+            log.error(f"Failed to ensure Hyprland config source: {e}")
+
+    def set_hyprland_integration(self, enabled: bool) -> bool:
+        """Set Hyprland integration status"""
+        # 1. Strict Boolean Conversion
+        if isinstance(enabled, str):
+            is_enabled = enabled.lower() in ('true', '1', 'yes', 'on')
+        else:
+            is_enabled = bool(enabled)
+
+        log.info(f"set_hyprland_integration requested. Input: {enabled} -> Resolved: {is_enabled}")
+        self.hyprland_integration = is_enabled
+
+        try:
+            # 2. Update Config File
+            config = configparser.ConfigParser()
+            config.read(CONFIG_PATH)
+            
+            if 'General' not in config:
+                config['General'] = {}
+            
+            config['General']['HyprlandIntegration'] = str(is_enabled)
+            
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+            
+            # 3. Execute Logic
+            if is_enabled:
+                log.info("Status: ENABLED. Activating Hyprland integration...")
+                try:
+                    self._ensure_hyprland_config_source()
+                    self._update_hyprland_visuals(self.last_known_profile)
+                except Exception as e:
+                    log.error(f"Error during activation: {e}")
+            else:
+                log.info("Status: DISABLED. Deactivating Hyprland integration...")
+                try:
+                    self._remove_hyprland_config_source()
+                except Exception as e:
+                    log.error(f"Error during deactivation: {e}")
+            
+            return True
+
+        except Exception as e:
+            log.error(f"Critical error in set_hyprland_integration: {e}")
+            return False
+
     def get_all_settings(self) -> Dict:
         """Get all AcerSense daemon settings as a dictionary"""
         settings = {
@@ -751,7 +1405,14 @@ class AcerSenseManager:
             "available_features": list(self.available_features),
             "version": VERSION,
             "driver_version": self.get_driver_version(),
-            "modprobe_parameter": self.current_modprobe_param
+            "modprobe_parameter": self.current_modprobe_param,
+            "hyprland_integration": self.hyprland_integration,
+            "default_ac_profile": self.default_ac_profile,
+            "default_bat_profile": self.default_bat_profile,
+            "ac_active_opacity": self.ac_active_opacity,
+            "ac_inactive_opacity": self.ac_inactive_opacity,
+            "bat_active_opacity": self.bat_active_opacity,
+            "bat_inactive_opacity": self.bat_inactive_opacity
         }
 
         # Only include thermal profile if available
@@ -931,7 +1592,14 @@ class DaemonServer:
 
     def process_command(self, command: str, params: Dict) -> Dict:
         """Process a command from the client"""
-        log.info(f"Processing command: {command} with params: {params}")
+        
+        # Filter noise from repetitive polling commands
+        NOISY_COMMANDS = ["get_thermal_profile", "get_fan_speed", "get_all_settings", "get_supported_features"]
+        
+        if command in NOISY_COMMANDS:
+            log.debug(f"Processing command: {command} with params: {params}")
+        else:
+            log.info(f"Processing command: {command} with params: {params}")
 
         try:
             if command == "get_all_settings":
@@ -1144,6 +1812,37 @@ class DaemonServer:
                     "error": "Failed to set four-zone mode" if not success else None
                 }
 
+            elif command == "set_hyprland_integration":
+                enabled = params.get("enabled", False)
+                success = self.manager.set_hyprland_integration(enabled)
+                return {
+                    "success": success,
+                    "data": {"enabled": enabled} if success else None,
+                    "error": "Failed to set Hyprland integration" if not success else None
+                }
+
+            elif command == "set_default_profile_preference":
+                source = params.get("source", "")
+                profile = params.get("profile", "")
+                success = self.manager.set_default_profile_preference(source, profile)
+                return {
+                    "success": success,
+                    "data": {"source": source, "profile": profile} if success else None,
+                    "error": "Failed to set default profile preference" if not success else None
+                }
+
+            elif command == "set_hyprland_opacity_settings":
+                ac_active = float(params.get("ac_active", 0.97))
+                ac_inactive = float(params.get("ac_inactive", 0.95))
+                bat_active = float(params.get("bat_active", 1.0))
+                bat_inactive = float(params.get("bat_inactive", 1.0))
+                success = self.manager.set_hyprland_opacity_settings(ac_active, ac_inactive, bat_active, bat_inactive)
+                return {
+                    "success": success,
+                    "data": None,
+                    "error": "Failed to set opacity settings" if not success else None
+                }
+
             elif command == "get_supported_features":
                 return {
                     "success": True,
@@ -1309,26 +2008,7 @@ class DaemonServer:
                 next_idx = (current_idx + 1) % len(profiles)
                 next_profile = profiles[next_idx]
 
-                # --- Custom logic from shell script ---
-                if not is_ac and next_profile == "balanced":
-                    log.info(">> On-battery Balanced Mode: Applying custom CPU settings...")
-                    try:
-                        with open("/sys/devices/system/cpu/intel_pstate/no_turbo", 'w') as f:
-                            f.write("0")
-                        for policy_dir in glob.glob("/sys/devices/system/cpu/cpufreq/policy*"):
-                            if os.path.exists(f"{policy_dir}/scaling_governor"):
-                                with open(f"{policy_dir}/scaling_governor", 'w') as f:
-                                    f.write("performance")
-                            if os.path.exists(f"{policy_dir}/scaling_max_freq"):
-                                with open(f"{policy_dir}/scaling_max_freq", 'w') as f:
-                                    f.write("2100000")
-                    except IOError as e:
-                        log.error(f"Failed to apply custom battery-balanced settings: {e}")
-                else:
-                    log.info("Applying TLP default settings...")
-                    subprocess.run(["tlp", "start"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                # --- End of custom logic ---
-
+                # TLP and custom logic removed - Manager handles optimizations now
                 self.manager.set_thermal_profile(next_profile)
                 
                 return {"success": True, "data": {"new_profile": next_profile}}
@@ -1400,6 +2080,14 @@ class AcerSenseDaemon:
             config.read(CONFIG_PATH)
 
         self.config = config
+        
+        # Load Hyprland Integration Setting
+        # Note: This attribute is stored on the daemon instance, but we need to pass it to the manager later or access it globally.
+        # For simplicity, we will set a class variable on AcerSenseManager if possible, or handle it during setup.
+        self.hyprland_integration = False
+        if 'General' in config and 'HyprlandIntegration' in config['General']:
+             self.hyprland_integration = config.getboolean('General', 'HyprlandIntegration', fallback=False)
+             log.info(f"Hyprland Integration: {'Enabled' if self.hyprland_integration else 'Disabled'}")
 
         # Set log level from config
         if 'General' in config and 'LogLevel' in config['General']:
@@ -1420,6 +2108,8 @@ class AcerSenseDaemon:
         try:
             # Initialize daemon manager
             self.manager = AcerSenseManager()
+            # Pass config setting to manager
+            self.manager.hyprland_integration = getattr(self, 'hyprland_integration', False)
 
             # Initialize power monitor
             self.power_monitor = PowerSourceDetector(self.manager)

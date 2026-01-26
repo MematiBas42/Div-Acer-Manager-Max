@@ -476,6 +476,57 @@ public class AcerSense : IDisposable
         return response.RootElement.GetProperty("success").GetBoolean();
     }
 
+    /// <summary>
+    ///     Set Hyprland integration status
+    /// </summary>
+    /// <param name="enabled">Enable or disable integration</param>
+    /// <returns>True if successful</returns>
+    public async Task<bool> SetHyprlandIntegrationAsync(bool enabled)
+    {
+        var parameters = new Dictionary<string, object>
+        {
+            { "enabled", enabled }
+        };
+
+        var response = await SendCommandAsync("set_hyprland_integration", parameters);
+        return response.RootElement.GetProperty("success").GetBoolean();
+    }
+
+    /// <summary>
+    ///     Set default profile preference
+    /// </summary>
+    /// <param name="source">"ac" or "bat"</param>
+    /// <param name="profile">Profile name</param>
+    /// <returns>True if successful</returns>
+    public async Task<bool> SetDefaultProfilePreferenceAsync(string source, string profile)
+    {
+        var parameters = new Dictionary<string, object>
+        {
+            { "source", source },
+            { "profile", profile }
+        };
+
+        var response = await SendCommandAsync("set_default_profile_preference", parameters);
+        return response.RootElement.GetProperty("success").GetBoolean();
+    }
+
+    /// <summary>
+    ///     Set Hyprland opacity settings
+    /// </summary>
+    public async Task<bool> SetHyprlandOpacitySettingsAsync(double acActive, double acInactive, double batActive, double batInactive)
+    {
+        var parameters = new Dictionary<string, object>
+        {
+            { "ac_active", acActive },
+            { "ac_inactive", acInactive },
+            { "bat_active", batActive },
+            { "bat_inactive", batInactive }
+        };
+
+        var response = await SendCommandAsync("set_hyprland_opacity_settings", parameters);
+        return response.RootElement.GetProperty("success").GetBoolean();
+    }
+
     protected virtual void Dispose(bool disposing)
     {
         if (_disposed) return;
@@ -540,6 +591,27 @@ public class AcerSenseSettings
 
     [JsonPropertyName("modprobe_parameter")]
     public string ModprobeParameter { get; set; } = "";
+
+    [JsonPropertyName("hyprland_integration")]
+    public bool HyprlandIntegration { get; set; }
+
+    [JsonPropertyName("default_ac_profile")]
+    public string DefaultAcProfile { get; set; } = "balanced";
+
+    [JsonPropertyName("default_bat_profile")]
+    public string DefaultBatProfile { get; set; } = "low-power";
+
+    [JsonPropertyName("ac_active_opacity")]
+    public double AcActiveOpacity { get; set; } = 0.97;
+
+    [JsonPropertyName("ac_inactive_opacity")]
+    public double AcInactiveOpacity { get; set; } = 0.95;
+
+    [JsonPropertyName("bat_active_opacity")]
+    public double BatActiveOpacity { get; set; } = 1.0;
+
+    [JsonPropertyName("bat_inactive_opacity")]
+    public double BatInactiveOpacity { get; set; } = 1.0;
 }
 
 public class ThermalProfileSettings

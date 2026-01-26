@@ -6,6 +6,7 @@
 Publish/
 publish/
 buildPublish/
+out/
 
 # Project specific build outputs
 AcerSense/obj/
@@ -14,6 +15,9 @@ AcerSense/bin/
 # Python daemon build outputs
 Daemon/build/
 Daemon/dist/
+__pycache__/
+*.pyc
+Daemon/AcerSense-Daemon
 
 # Ignored source/template directories
 

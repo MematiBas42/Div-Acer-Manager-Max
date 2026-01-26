@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 Builds and packages the complete AcerSense suite from source.
-This script compiles the GUI and daemon, and assembles them with drivers
-and installer scripts into a local release folder.
+This script compiles the GUI and daemon, and assembles them with
+installer scripts into a local release folder.
+Note: This version DOES NOT include drivers. Drivers must be installed separately (e.g. via DKMS).
 """
 
 import os
@@ -36,10 +37,8 @@ class ReleaseBuilder:
         self.project_root = Path(__file__).parent.absolute()
         self.gui_dir = self.project_root / "AcerSense"
         self.daemon_dir = self.project_root / "Daemon"
-        self.drivers_dir = self.project_root / "Linuwu-Sense" # This will be the cloned directory
-        self.template_dir = self.project_root / "build_template"
         self.publish_dir = self.project_root / "Publish"
-        self.drivers_repo_url = "https://github.com/kleqing/Linuwu-Sense"
+        self.setup_template = self.project_root / "scripts" / "setup_template.sh"
 
         print(f"Project Root: {self.project_root}")
 
@@ -55,17 +54,9 @@ class ReleaseBuilder:
                 print(f"Detected version: {version}")
                 return version
         except FileNotFoundError:
-            pass # Fallback
+            pass
         print("Warning: Could not detect version. Using '1.0.0'.")
         return "1.0.0"
-
-    def update_drivers(self):
-        print("\n=== Updating Drivers ===")
-        if self.drivers_dir.exists():
-            print("Removing existing drivers directory...")
-            shutil.rmtree(self.drivers_dir)
-        print(f"Cloning latest drivers from {self.drivers_repo_url}...")
-        run_command(["git", "clone", self.drivers_repo_url, str(self.drivers_dir)])
 
     def build_gui(self):
         print("\n=== Building GUI ===")
@@ -100,43 +91,43 @@ class ReleaseBuilder:
             shutil.rmtree(package_dir)
         
         print(f"Creating package structure in: {package_dir}")
-        gui_target = package_dir / "DAMX-GUI"
-        daemon_target = package_dir / "DAMX-Daemon"
+        gui_target = package_dir / "AcerSense-GUI"
+        daemon_target = package_dir / "AcerSense-Daemon"
         
         gui_target.mkdir(parents=True)
         daemon_target.mkdir(parents=True)
 
-        # 1. Fetch setup files from the 'setup' branch
-        print("Fetching release template files from 'setup' branch...")
-        run_command(["git", "archive", "--remote=.", "--format=tar", "-o", str(self.publish_dir / "template.tar"), "setup"])
-        shutil.unpack_archive(self.publish_dir / "template.tar", package_dir)
-        os.remove(self.publish_dir / "template.tar")
+        # 1. Copy Setup Script
+        if self.setup_template.exists():
+            shutil.copy2(self.setup_template, package_dir / "setup.sh")
+            print("Copied setup script.")
+        else:
+            print("Error: setup_template.sh not found. Package will be incomplete.")
 
         # 2. Copy GUI
         gui_source_dir = self.gui_dir / "bin/Release/net9.0/linux-x64/publish"
-        shutil.copy2(gui_source_dir / "AcerSense", gui_target / "AcerSense")
-        for icon_name in ["icon.png", "iconTransparent.png"]:
-            icon_path = self.gui_dir / icon_name
-            if icon_path.exists():
-                shutil.copy2(icon_path, gui_target)
-        print("Copied GUI and icons.")
+        if (gui_source_dir / "AcerSense").exists():
+            shutil.copy2(gui_source_dir / "AcerSense", gui_target / "AcerSense")
+            for icon_name in ["icon.png", "iconTransparent.png"]:
+                icon_path = self.gui_dir / icon_name
+                if icon_path.exists():
+                    shutil.copy2(icon_path, gui_target)
+            print("Copied GUI and icons.")
+        else:
+            print("Error: Compiled GUI not found.")
 
         # 3. Copy Daemon
-        daemon_executable_name = "AcerSense-Daemon"
-        shutil.copy2(self.daemon_dir / "dist" / daemon_executable_name, daemon_target / daemon_executable_name)
-        print("Copied Daemon.")
+        daemon_dist = self.daemon_dir / "dist" / "AcerSense-Daemon"
+        if daemon_dist.exists():
+            shutil.copy2(daemon_dist, daemon_target / "AcerSense-Daemon")
+            print("Copied Daemon.")
+        else:
+            print("Error: Compiled Daemon not found.")
 
-        # 4. Drivers are now part of the fetched template, just ensure permissions
-        drivers_target = package_dir / "Linuwu-Sense"
-        if not drivers_target.exists():
-             print("Warning: Linuwu-Sense driver directory not found in setup branch template.")
-        print("Drivers included from setup branch.")
-
-        # 5. Ensure setup script is executable
+        # 4. Ensure setup script is executable
         (package_dir / "setup.sh").chmod(0o755)
-        print("Checked setup script permissions.")
 
-        # 6. Create release.txt
+        # 5. Create release.txt
         release_info = f"""AcerSense Release Information
 ========================
 Version: {version}
@@ -144,14 +135,12 @@ Build Date: {subprocess.check_output(['date'], text=True).strip()}
 """
         with open(package_dir / "release.txt", 'w') as f:
             f.write(release_info)
-        print("Created release.txt.")
 
         print(f"\n🎉 Successfully created release package at: {package_dir}")
 
 
 def main():
     builder = ReleaseBuilder()
-    builder.update_drivers()
     version = builder.get_version()
     builder.build_gui()
     builder.build_daemon()
