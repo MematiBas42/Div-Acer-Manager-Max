@@ -65,6 +65,8 @@ class AcerSenseManager:
     def __init__(self):
         '''The initial init (i know very nice description)'''
         log.info(f"** Starting AcerSense daemon v{VERSION} **")
+        
+        self.event_callback = None  # Callback for async broadcast
 
         # Check if linuwu_sense is installed
         if not os.path.exists("/sys/module/linuwu_sense"):
@@ -112,6 +114,19 @@ class AcerSenseManager:
         # Apply the correct default profile immediately and synchronously on startup
         self._load_defaults()
         self._apply_initial_profile()
+
+    def register_event_callback(self, callback):
+        """Register a callback function to be called when an event occurs"""
+        self.event_callback = callback
+
+    def _notify_event(self, event_type: str, data: Dict):
+        """Notify registered callback of an event"""
+        if self.event_callback:
+            try:
+                # The callback is responsible for being thread-safe or thread-aware
+                self.event_callback(event_type, data)
+            except Exception as e:
+                log.error(f"Error in event callback: {e}")
 
     def _load_defaults(self):
         """Load default profile preferences and opacity settings from config"""
@@ -588,6 +603,10 @@ class AcerSenseManager:
             self.last_known_profile = profile # Update internal state immediately
             self._update_hyprland_visuals(profile)
             self._apply_profile_optimizations(profile)
+            
+            # Broadcast Event
+            self._notify_event("thermal_profile_changed", {"profile": profile})
+            
         return success
 
     def _apply_profile_optimizations(self, profile: str):
@@ -1463,17 +1482,36 @@ class AcerSenseManager:
         return settings
 
 
+import asyncio
+
 class DaemonServer:
-    """Unix Socket server for IPC with the GUI client"""
+    """Asyncio Unix Socket server for IPC with the GUI client"""
 
     def __init__(self, manager: AcerSenseManager):
         self.manager = manager
-        self.socket = None
+        self.server = None
+        self.clients = set() # Set of (reader, writer) tuples
         self.running = False
-        self.clients = []
+        
+        # Register ourselves as the event handler for the manager
+        # Since manager calls this from sync context (threads), we need a bridge.
+        # We will use loop.call_soon_threadsafe if needed, but for now we'll set it up in start()
+        self.loop = None
 
-    def start(self):
-        """Start the Unix socket server"""
+    async def start(self):
+        """Start the Async Unix socket server"""
+        self.loop = asyncio.get_running_loop()
+        
+        # Register callback bridge
+        # When manager calls this, we schedule the broadcast on the event loop
+        def sync_callback(event_type, data):
+            if self.loop and self.running:
+                self.loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(self.broadcast_event(event_type, data))
+                )
+        
+        self.manager.register_event_callback(sync_callback)
+
         # Remove socket if it already exists
         try:
             if os.path.exists(SOCKET_PATH):
@@ -1483,57 +1521,40 @@ class DaemonServer:
             return False
 
         try:
-            self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.socket.bind(SOCKET_PATH)
-            # Ensure socket permissions allow non-root access
-            os.chmod(SOCKET_PATH, 0o666)
-            self.socket.listen(5)
-            self.socket.settimeout(1)  # 1 second timeout for clean shutdown
             self.running = True
+            self.server = await asyncio.start_unix_server(
+                self.handle_client, path=SOCKET_PATH
+            )
+            
+            # Ensure socket permissions
+            os.chmod(SOCKET_PATH, 0o666)
+            
+            log.info(f"Async Server listening on {SOCKET_PATH}")
+            
+            async with self.server:
+                await self.server.serve_forever()
 
-            log.info(f"Server listening on {SOCKET_PATH}")
-
-            # Accept connections in a loop
-            while self.running:
-                try:
-                    client, _ = self.socket.accept()
-                    client_thread = threading.Thread(target=self.handle_client, args=(client,))
-                    client_thread.daemon = True
-                    client_thread.start()
-                    self.clients.append((client, client_thread))
-                except socket.timeout:
-                    # This is expected due to the timeout
-                    continue
-                except Exception as e:
-                    if self.running:  # Only log if not shutting down
-                        log.error(f"Error accepting connection: {e}")
-
-            return True
-
+        except asyncio.CancelledError:
+            log.info("Server cancelled.")
         except Exception as e:
             log.error(f"Failed to start server: {e}")
             return False
+        finally:
+            self.cleanup_socket()
 
     def stop(self):
-        """Stop the server and clean up"""
+        """Stop the server"""
         log.info("Stopping server...")
         self.running = False
-    
-        # Close all client connections
-        for client, _ in self.clients:
+        if self.server:
+            self.server.close()
+        
+        # Close all clients
+        for _, writer in list(self.clients):
             try:
-                client.close()
+                writer.close()
             except:
                 pass
-    
-        # Close server socket
-        if self.socket:
-            try:
-                self.socket.close()
-            except:
-                pass
-    
-        # Clean up socket file
         self.cleanup_socket()
 
     def cleanup_socket(self):
@@ -1545,50 +1566,83 @@ class DaemonServer:
         except Exception as e:
             log.error(f"Failed to remove socket file: {e}")
 
+    async def handle_client(self, reader, writer):
+        """Handle async communication with a client"""
+        client_peer = writer.get_extra_info('peername')
+        # log.debug(f"New connection: {client_peer}")
+        self.clients.add((reader, writer))
 
-    def handle_client(self, client_socket):
-        """Handle communication with a client"""
         try:
             while self.running:
-                # Receive data from client
-                data = client_socket.recv(4096)
+                data = await reader.read(4096)
                 if not data:
                     break
 
                 try:
-                    # Parse JSON request
-                    request = json.loads(data.decode('utf-8'))
+                    message = data.decode('utf-8')
+                    # Support multiple JSON objects in one packet (if they stick together)
+                    # For now assume one line/packet per command or handle basic structure
+                    
+                    request = json.loads(message)
                     command = request.get("command", "")
                     params = request.get("params", {})
 
-                    # Process command
+                    # Process command (Sync logic for now)
                     response = self.process_command(command, params)
 
                     # Send response
-                    client_socket.sendall(json.dumps(response).encode('utf-8'))
+                    response_data = json.dumps(response).encode('utf-8')
+                    writer.write(response_data)
+                    await writer.drain()
 
                 except json.JSONDecodeError:
                     log.error("Invalid JSON received")
-                    client_socket.sendall(json.dumps({
-                        "success": False,
-                        "error": "Invalid JSON format"
-                    }).encode('utf-8'))
                 except Exception as e:
                     log.error(f"Error processing request: {e}")
                     log.error(traceback.format_exc())
-                    client_socket.sendall(json.dumps({
-                        "success": False,
-                        "error": str(e)
-                    }).encode('utf-8'))
-
+                    
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
-            if self.running:  # Only log if not shutting down
-                log.error(f"Client connection error: {e}")
+            log.error(f"Client connection error: {e}")
         finally:
+            self.clients.discard((reader, writer))
             try:
-                client_socket.close()
+                writer.close()
+                await writer.wait_closed()
             except:
                 pass
+
+    async def broadcast_event(self, event_type: str, data: Dict):
+        """Send a JSON event to all connected clients"""
+        if not self.clients:
+            return
+
+        payload = {
+            "type": "event",
+            "event": event_type,
+            "data": data
+        }
+        
+        try:
+            message = json.dumps(payload).encode('utf-8')
+            log.debug(f"Broadcasting event: {event_type} to {len(self.clients)} clients")
+            
+            stale_clients = []
+            
+            for reader, writer in self.clients:
+                try:
+                    writer.write(message)
+                    await writer.drain()
+                except Exception:
+                    stale_clients.append((reader, writer))
+            
+            # Cleanup disconnected clients found during broadcast
+            for client in stale_clients:
+                self.clients.discard(client)
+                
+        except Exception as e:
+            log.error(f"Broadcast error: {e}")
 
     def process_command(self, command: str, params: Dict) -> Dict:
         """Process a command from the client"""
@@ -2127,28 +2181,48 @@ class AcerSenseDaemon:
     
 
 
-    def run(self):
+    async def run(self):
         """Run the daemon"""
         # Write PID file
         with open(PID_FILE, 'w') as f:
             f.write(str(os.getpid()))
 
-        # Set up signal handlers
-        signal.signal(signal.SIGTERM, self.signal_handler)
-        signal.signal(signal.SIGINT, self.signal_handler)
+        # Set up signal handlers for graceful shutdown
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(self.shutdown()))
 
         # Set up and run the server
         try:
             self.running = True
             self.server = DaemonServer(self.manager)
-            self.power_monitor.start_monitoring()
-            self.server.start()
             
+            # Start power monitor
+            if self.power_monitor:
+                self.power_monitor.start_monitoring()
+            
+            # Start Async Server
+            await self.server.start()
+            
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
             log.error(f"Error running daemon: {e}")
             log.error(traceback.format_exc())
         finally:
             self.cleanup()
+
+    async def shutdown(self):
+        """Handle shutdown signal"""
+        log.info("Received stop signal, shutting down...")
+        self.running = False
+        if self.server:
+            self.server.stop()
+        # Cancel all running tasks
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     def cleanup(self):
         """Clean up resources"""
@@ -2157,7 +2231,6 @@ class AcerSenseDaemon:
         # Stop server and clean up socket
         if self.server:
             self.server.stop()
-            self.server.cleanup_socket()  # Additional cleanup
     
         if self.power_monitor:
             self.power_monitor.stop_monitoring()
@@ -2171,13 +2244,6 @@ class AcerSenseDaemon:
     
         log.info("Daemon stopped")
 
-    def signal_handler(self, sig, frame):
-        """Handle termination signals"""
-        log.info(f"Received signal {sig}, shutting down...")
-        self.running = False
-        if self.server:
-            self.server.running = False
-
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description="AcerSense Daemon")
@@ -2187,21 +2253,9 @@ def parse_args():
     parser.add_argument('--config', type=str, help=f"Path to config file (default: {CONFIG_PATH})")
     return parser.parse_args()
 
-def signal_handler(self, sig, frame):
-    """Handle termination signals"""
-    log.info(f"Received signal {sig}, shutting down...")
-    self.running = False
-    if self.server:
-        self.server.running = False
-    # Ensure socket is cleaned up
-    if hasattr(self, 'server') and self.server:
-        self.server.cleanup_socket()
-
 def main():
     """Main function"""
     args = parse_args()
-
-    log.info(f"Driver Version: {AcerSenseManager().get_driver_version()}")
 
     # Set log level based on verbosity
     if args.verbose:
@@ -2215,7 +2269,14 @@ def main():
 
     daemon = AcerSenseDaemon()
     if daemon.setup():
-        daemon.run()
+        try:
+            log.info(f"Driver Version: {daemon.manager.get_driver_version()}")
+            asyncio.run(daemon.run())
+        except KeyboardInterrupt:
+            pass # Handled by signal handler usually
+        except Exception as e:
+            log.error(f"Fatal error: {e}")
+            sys.exit(1)
     else:
         log.error("Failed to set up daemon, exiting...")
         sys.exit(1)
