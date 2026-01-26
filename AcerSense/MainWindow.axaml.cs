@@ -14,6 +14,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Threading;
 using MsBox.Avalonia;
 
 namespace DivAcerManagerMax;
@@ -371,8 +372,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
              (_turboProfileButton?.IsChecked == true && !_turboProfileButton.IsVisible)))
             _balancedProfileButton.IsChecked = true;
     }
-
-using Avalonia.Threading;
 
     public async void InitializeAsync()
     {
