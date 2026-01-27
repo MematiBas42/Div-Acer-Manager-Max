@@ -66,6 +66,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private TextBlock? _gpuFanTextBlock;
     private TextBlock? _guiVersionTextBlock;
     private ToggleSwitch? _hyprlandIntegrationToggleSwitch;
+    private ToggleSwitch? _disableLogsToggleSwitch;
     private bool _isCalibrating;
     private bool _isConnected;
     private bool _isManualFanControl;
@@ -187,6 +188,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _backlightTimeoutCheckBox = nameScope.Find<CheckBox>("BacklightTimeoutCheckBox");
         _lcdOverrideCheckBox = nameScope.Find<CheckBox>("LcdOverrideCheckBox");
         _hyprlandIntegrationToggleSwitch = nameScope.Find<ToggleSwitch>("HyprlandIntegrationToggleSwitch");
+        _disableLogsToggleSwitch = nameScope.Find<ToggleSwitch>("DisableLogsToggleSwitch");
         _bootAnimAndSoundCheckBox = nameScope.Find<CheckBox>("BootAnimAndSoundCheckBox");
 
         // Opacity Controls
@@ -364,36 +366,45 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             if (_client == null) _client = new AcerSense();
             _isConnected = await _client.ConnectAsync();
-            if (_isConnected)
-            {
-                if (_daemonErrorGrid != null) _daemonErrorGrid.IsVisible = false;
-                await LoadSettingsAsync();
-                
-                // Set client for dashboard (event system)
-                if (_dashboardView != null) _dashboardView.SetClient(_client);
 
-                // Event-Driven: Subscribe to events
-                _client.ThermalProfileChanged += OnThermalProfileChanged;
-                _client.FanSpeedChanged += OnFanSpeedChanged;
-                _client.PowerStateChanged += OnPowerStateChanged;
-                
-                // Start listening for broadcast events
-                _client.StartListening();
-                
-                await CheckForUpdatesAsync();
-            }
-            else
+            await Dispatcher.UIThread.InvokeAsync(async () =>
             {
-                await ShowMessageBox(
-                    "Error Connecting to Daemon",
-                    "Failed to connect to daemon. The Daemon may be initializing please wait.");
-                if (_daemonErrorGrid != null) _daemonErrorGrid.IsVisible = true;
-            }
+                if (_isConnected)
+                {
+                    if (_daemonErrorGrid != null) _daemonErrorGrid.IsVisible = false;
+                    await LoadSettingsAsync();
+                    
+                    // Set client for dashboard (event system)
+                    if (_dashboardView != null && _client != null) _dashboardView.SetClient(_client);
+
+                    if (_client != null)
+                    {
+                        // Event-Driven: Subscribe to events
+                        _client.ThermalProfileChanged += OnThermalProfileChanged;
+                        _client.FanSpeedChanged += OnFanSpeedChanged;
+                        _client.PowerStateChanged += OnPowerStateChanged;
+                        
+                        // Start listening for broadcast events
+                        _client.StartListening();
+                    }
+                    
+                    await CheckForUpdatesAsync();
+                }
+                else
+                {
+                    await ShowMessageBox(
+                        "Error Connecting to Daemon",
+                        "Failed to connect to daemon. The Daemon may be initializing please wait.");
+                    if (_daemonErrorGrid != null) _daemonErrorGrid.IsVisible = true;
+                }
+            });
         }
         catch (Exception ex)
         {
-            await ShowMessageBox("Error while initializing", $"Error initializing: {ex.Message}");
-            if (_daemonErrorGrid != null) _daemonErrorGrid.IsVisible = true;
+            await Dispatcher.UIThread.InvokeAsync(async () => {
+                await ShowMessageBox("Error while initializing", $"Error initializing: {ex.Message}");
+                if (_daemonErrorGrid != null) _daemonErrorGrid.IsVisible = true;
+            });
         }
     }
 
@@ -402,7 +413,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         Dispatcher.UIThread.InvokeAsync(() =>
         {
-            if (_settings.ThermalProfile != null)
+            if (_settings?.ThermalProfile != null)
             {
                 _settings.ThermalProfile.Current = profile;
                 UpdateProfileButtons();
@@ -483,19 +494,53 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
+    private void LogGui(string message)
+    {
+        try {
+            if (_settings?.DisableLogs == true) return;
+            var logLine = $"[{DateTime.Now:HH:mm:ss}] INFO: {message}\n";
+            File.AppendAllText("/tmp/AcerSenseGUI.log", logLine);
+            Console.WriteLine(message);
+        } catch {}
+    }
+
+    private void LogErrorGui(string context, Exception ex)
+    {
+        try {
+            var logLine = $"[{DateTime.Now:HH:mm:ss}] ERROR: {context} - {ex.Message}\nType: {ex.GetType().Name}\nStackTrace:\n{ex.StackTrace}\n\n";
+            // Errors are ALWAYS logged regardless of DisableLogs setting
+            File.AppendAllText("/tmp/AcerSenseGUI.log", logLine);
+            Console.Error.WriteLine(logLine);
+        } catch {}
+    }
+
     private async Task LoadSettingsAsync()
     {
         try
         {
             if (_client != null)
             {
-                _settings = await _client.GetAllSettingsAsync();
+                var newSettings = await _client.GetAllSettingsAsync();
+                _settings = newSettings ?? new AcerSenseSettings();
+                
+                if (_settings.DisableLogs == false) {
+                    LogGui($"Settings loaded successfully. Detected {_settings.AvailableFeatures.Count} features.");
+                }
                 ApplySettingsToUI();
             }
         }
+        catch (KeyNotFoundException ex)
+        {
+            var msg = $"Missing Data in Response: {ex.Message}";
+            LogErrorGui("LoadSettingsAsync", ex);
+            await ShowMessageBox("Missing Data Error", $"{msg}\n\nTechnical details have been saved to /tmp/AcerSenseGUI.log");
+            _settings = new AcerSenseSettings();
+            ApplySettingsToUI();
+        }
         catch (Exception ex)
         {
-            await ShowMessageBox("Error while loading settings", $"Error loading settings: {ex.Message}");
+            LogErrorGui("LoadSettingsAsync", ex);
+            await ShowMessageBox("Critical Error", $"Failed to load settings: {ex.Message}\n\nCheck /tmp/AcerSenseGUI.log for details.");
             _settings = new AcerSenseSettings();
             ApplySettingsToUI();
         }
@@ -620,6 +665,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         if (_hyprlandIntegrationToggleSwitch != null)
             _hyprlandIntegrationToggleSwitch.IsChecked = _settings.HyprlandIntegration;
+
+        if (_disableLogsToggleSwitch != null)
+        {
+            _disableLogsToggleSwitch.PropertyChanged -= DisableLogs_Toggled;
+            _disableLogsToggleSwitch.IsChecked = _settings.DisableLogs;
+            _disableLogsToggleSwitch.PropertyChanged += DisableLogs_Toggled;
+        }
 
         if (_acActiveOpacitySlider != null) _acActiveOpacitySlider.Value = _settings.AcActiveOpacity;
         if (_acInactiveOpacitySlider != null) _acInactiveOpacitySlider.Value = _settings.AcInactiveOpacity;
@@ -980,6 +1032,22 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (e.Property.Name == "IsChecked" && _isConnected && _client != null && sender is ToggleSwitch toggleSwitch)
         {
             await _client.SetHyprlandIntegrationAsync(toggleSwitch.IsChecked ?? false);
+        }
+    }
+
+    private async void DisableLogs_Toggled(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property.Name == "IsChecked" && _isConnected && _client != null && sender is ToggleSwitch toggleSwitch)
+        {
+            var disabled = toggleSwitch.IsChecked ?? false;
+            await _client.SetLoggingStateAsync(disabled);
+            if (_settings != null) _settings.DisableLogs = disabled;
+            
+            if (disabled) {
+                try { File.WriteAllText("/tmp/AcerSenseGUI.log", string.Empty); } catch {}
+            }
+            
+            LogGui($"Logging state changed to: {(disabled ? "Disabled" : "Enabled")}");
         }
     }
 

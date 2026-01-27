@@ -81,38 +81,36 @@ class PowerSourceDetector:
 
         while self.running:
             try:
-                # Poll with a 5-second timeout (5000ms). Wake up immediately on events.
-                # This allows the thread to check 'self.running' periodically for graceful shutdown.
-                events = poll_obj.poll(5000)
+                # Poll indefinitely (-1). Wake up only when kernel sends an event.
+                # This eliminates the 2-second CPU 'poke'.
+                events = poll_obj.poll(-1)
                 
                 should_check_power = False
                 should_check_profile = False
                 
-                if not events:
-                    # Heartbeat check every 5 seconds just in case Netlink missed something
-                    self.check_power_source()
-                    continue
-                
                 for fd, event in events:
                     if fd == sock.fileno():
+                        # Receive event data
                         data = sock.recv(16384)
                         decoded = data.decode('utf-8', errors='replace')
                         
+                        # Check for power supply events
                         if "SUBSYSTEM=power_supply" in decoded:
                             log.debug("Kernel Event: Power source change detected")
                             should_check_power = True
                         
+                        # Check for thermal profile events (platform_profile)
                         if "platform_profile" in decoded:
                             log.debug("Kernel Event: Thermal profile change detected")
                             should_check_profile = True
                 
                 if should_check_power:
-                    # Give sysfs a moment to update
+                    # Give sysfs a tiny moment to update
                     time.sleep(0.1)
                     self.check_power_source()
                 
                 if should_check_profile:
-                    # Notify manager to check and broadcast new profile
+                    # Notify manager to sync state with hardware
                     self.manager.handle_hardware_event()
 
             except Exception as e:

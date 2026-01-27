@@ -53,6 +53,11 @@ public partial class InternalsManager : Window
         Process.Start("xdg-open", logPath);
     }
 
+    private void GuiLogsButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        Process.Start("xdg-open", "/tmp/AcerSenseGUI.log");
+    }
+
 
     private async void RestartSuiteButton_OnClick(object? sender, RoutedEventArgs e)
     {

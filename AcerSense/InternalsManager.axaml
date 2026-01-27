@@ -122,11 +122,16 @@
                             <TextBlock Text="Access diagnostic information and logs"
                                        Opacity="0.7" Margin="0,0,0,15" />
 
-                            <Button x:Name="DaemonLogsButton"
-                                    Content="View Daemon Logs"
-                                    Click="DaemonLogsButton_OnClick"
-                                    HorizontalAlignment="Left"
-                                    MinWidth="160" />
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <Button x:Name="DaemonLogsButton"
+                                        Content="View Daemon Logs"
+                                        Click="DaemonLogsButton_OnClick"
+                                        MinWidth="160" />
+                                <Button x:Name="GuiLogsButton"
+                                        Content="View GUI Logs"
+                                        Click="GuiLogsButton_OnClick"
+                                        MinWidth="160" />
+                            </StackPanel>
                         </StackPanel>
                     </Border>
 

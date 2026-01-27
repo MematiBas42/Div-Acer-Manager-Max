@@ -202,16 +202,34 @@ public class AcerSense : IDisposable
                 if (!IsConnected && !await ConnectAsync()) throw new IOException("Not connected");
 
                 var request = new { command, @params = parameters ?? new Dictionary<string, object>() };
-                var requestBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(request) + "\n");
+                var requestJson = JsonSerializer.Serialize(request) + "\n";
+                var requestBytes = Encoding.UTF8.GetBytes(requestJson);
 
                 if (_socket == null) throw new IOException("Socket is null");
                 await _socket.SendAsync(requestBytes, SocketFlags.None);
 
                 using var stream = new NetworkStream(_socket, false);
                 using var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, true);
-                var responseJson = await reader.ReadLineAsync();
                 
-                if (responseJson != null) return JsonDocument.Parse(responseJson);
+                // Keep reading until we get a response, skipping any out-of-band events
+                while (true)
+                {
+                    var line = await reader.ReadLineAsync();
+                    if (line == null) break;
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+
+                    var doc = JsonDocument.Parse(line);
+                    
+                    // If this is an event message, ignore it and continue reading for the response
+                    if (doc.RootElement.TryGetProperty("type", out var typeProp) && 
+                        typeProp.GetString() == "event")
+                    {
+                        continue; 
+                    }
+
+                    // This must be our response
+                    return doc;
+                }
 
                 IsConnected = false;
             }
@@ -219,7 +237,7 @@ public class AcerSense : IDisposable
             attempt++;
             await Task.Delay(RetryDelayMs);
         }
-        throw new IOException("Communication failed");
+        throw new IOException("Communication failed after multiple attempts");
     }
 
     public async Task<AcerSenseSettings> GetAllSettingsAsync()
@@ -331,6 +349,12 @@ public class AcerSense : IDisposable
         return response.RootElement.GetProperty("success").GetBoolean();
     }
 
+    public async Task<bool> SetLoggingStateAsync(bool disabled)
+    {
+        var response = await SendCommandAsync("set_logging_state", new Dictionary<string, object> { { "disabled", disabled } });
+        return response.RootElement.GetProperty("success").GetBoolean();
+    }
+
     public void Dispose()
     {
         Dispose(true);
@@ -345,8 +369,8 @@ public class AcerSense : IDisposable
             _cancellationTokenSource?.Cancel();
             _cancellationTokenSource?.Dispose();
             Disconnect();
-            _socket?.Dispose();
-            _eventSocket?.Dispose();
+            if (_socket != null) try { _socket.Dispose(); } catch { }
+            if (_eventSocket != null) try { _eventSocket.Dispose(); } catch { }
         }
         _disposed = true;
     }
@@ -379,6 +403,7 @@ public class AcerSenseSettings
     [JsonPropertyName("four_zone_mode")] public string FourZoneMode { get; set; } = "";
     [JsonPropertyName("modprobe_parameter")] public string ModprobeParameter { get; set; } = "";
     [JsonPropertyName("hyprland_integration")] public bool HyprlandIntegration { get; set; }
+    [JsonPropertyName("disable_logs")] public bool DisableLogs { get; set; }
     [JsonPropertyName("default_ac_profile")] public string DefaultAcProfile { get; set; } = "balanced";
     [JsonPropertyName("default_bat_profile")] public string DefaultBatProfile { get; set; } = "low-power";
     [JsonPropertyName("ac_active_opacity")] public double AcActiveOpacity { get; set; } = 0.97;

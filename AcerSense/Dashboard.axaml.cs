@@ -67,22 +67,47 @@ public partial class Dashboard : UserControl, INotifyPropertyChanged
     private CartesianChart? _temperatureChart;
     private ObservableCollection<ISeries> _tempSeries = new();
     private AcerSense? _client;
-
-    private long _lastTotalTime = 0;
-    private long _lastIdleTime = 0;
+    private long _lastTotalTime;
+    private long _lastIdleTime;
 
     public Dashboard()
     {
         InitializeComponent();
         DataContext = this;
+
+        // Initialize rotate transforms
+        _cpuFanRotateTransform = new RotateTransform();
+        _gpuFanRotateTransform = new RotateTransform();
+
+        // Initialize default values for battery properties
+        BatteryPercentage.Text = "0";
+        BatteryTimeRemaining.Text = "0";
+        BatteryStatus = "Unknown";
+
+        // Fetch static system information once at initialization
         InitializeStaticSystemInfo();
-        _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(REFRESH_INTERVAL_MS) };
+
+        // Setup refresh timer but don't start it yet - will start when visible
+        _refreshTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(REFRESH_INTERVAL_MS)
+        };
         _refreshTimer.Tick += RefreshDynamicMetrics;
+
+        // Initial refresh
         RefreshDynamicMetricsAsync();
     }
 
     public void SetClient(AcerSense client)
     {
+        if (_client == client) return; // Prevent double subscription
+        
+        if (_client != null)
+        {
+            _client.FanSpeedChanged -= OnFanSpeedChanged;
+            _client.PowerStateChanged -= OnPowerStateChanged;
+        }
+
         _client = client;
         if (_client != null)
         {
@@ -95,29 +120,54 @@ public partial class Dashboard : UserControl, INotifyPropertyChanged
     {
         Dispatcher.UIThread.Post(() =>
         {
-            var cpuText = this.FindControl<TextBlock>("CpuFanSpeed");
-            var gpuText = this.FindControl<TextBlock>("GpuFanSpeed");
-            if (e.Cpu != null && int.TryParse(e.Cpu, out var cs)) { CpuFanSpeedRPM = cs; if (cpuText != null) cpuText.Text = $"{cs} RPM"; }
-            if (e.Gpu != null && int.TryParse(e.Gpu, out var gs)) { GpuFanSpeedRPM = gs; if (gpuText != null) gpuText.Text = $"{gs} RPM"; }
+            var cpuFanSpeedText = this.FindControl<TextBlock>("CpuFanSpeed");
+            var gpuFanSpeedText = this.FindControl<TextBlock>("GpuFanSpeed");
+
+            if (int.TryParse(e.Cpu, out var cpuSpeed))
+            {
+                CpuFanSpeedRPM = cpuSpeed;
+                if (cpuFanSpeedText != null) cpuFanSpeedText.Text = $"{cpuSpeed} RPM";
+            }
+            if (int.TryParse(e.Gpu, out var gpuSpeed))
+            {
+                GpuFanSpeedRPM = gpuSpeed;
+                if (gpuFanSpeedText != null) gpuFanSpeedText.Text = $"{gpuSpeed} RPM";
+            }
             UpdateFanAnimations();
         });
     }
 
-    private void OnPowerStateChanged(object? sender, bool isPluggedIn) => RefreshDynamicMetricsAsync();
+    private void LogDashboard(string message) {
+        if (_client == null || _client.IsConnected == false) return;
+        // Logic to check logging state could be added here if needed, 
+        // but for now we'll just minimize console output.
+    }
+
+    private void OnPowerStateChanged(object? sender, bool isPluggedIn)
+    {
+        // Trigger a refresh to update battery status text immediately
+        RefreshDynamicMetricsAsync();
+    }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
         _refreshTimer.Start();
+        Console.WriteLine("Dashboard attached: Refresh timer started.");
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
         _refreshTimer.Stop();
+        Console.WriteLine("Dashboard detached: Refresh timer stopped.");
     }
 
-    public string CpuName { get => _cpuName; set => SetProperty(ref _cpuName, value); }
+    public string CpuName
+    {
+        get => _cpuName;
+        set => SetProperty(ref _cpuName, value);
+    }
     public string GpuName { get => _gpuName; set => SetProperty(ref _gpuName, value); }
     public int CpuFanSpeedRPM { get => _cpuFanSpeedRpm; set => SetProperty(ref _cpuFanSpeedRpm, value); }
     public int GpuFanSpeedRPM { get => _gpuFanSpeedRpm; set => SetProperty(ref _gpuFanSpeedRpm, value); }
@@ -421,7 +471,11 @@ public partial class Dashboard : UserControl, INotifyPropertyChanged
         foreach(var p in new[]{"/sys/class/hwmon/hwmon5","/sys/class/hwmon/hwmon6","/sys/class/hwmon/hwmon7","/sys/class/hwmon/hwmon8"})
             if(Directory.Exists(p)) {
                 var fs = Directory.GetFiles(p, "temp*_input");
-                if(fs.Length > 3) { _systemInfoPaths["cpu_temp_files"] = string.Join(",", fs); break; }
+                if(fs.Length > 3) { 
+                    _systemInfoPaths["cpu_temp_files"] = string.Join(",", fs); 
+                    Console.WriteLine($"[Dashboard] Found CPU Reporting Temps at {fs.Length} Cores ({p})");
+                    break; 
+                }
             }
     }
 
@@ -448,15 +502,35 @@ public partial class Dashboard : UserControl, INotifyPropertyChanged
     private (int percentage, string status, double timeRemaining) GetBatteryInfo() {
         if (!_hasBattery || _batteryDir == null) return (0, "No Battery", 0);
         try {
-            int p = _systemInfoPaths.ContainsKey("capacity") ? int.Parse(File.ReadAllText(_systemInfoPaths["capacity"]).Trim()) : 0;
-            string s = _systemInfoPaths.ContainsKey("status") ? File.ReadAllText(_systemInfoPaths["status"]).Trim() : "Unknown";
+            int p = 0;
+            if (_systemInfoPaths.ContainsKey("capacity")) {
+                p = int.Parse(File.ReadAllText(_systemInfoPaths["capacity"]).Trim());
+            }
+            
+            string s = "Unknown";
+            if (_systemInfoPaths.ContainsKey("status")) {
+                s = File.ReadAllText(_systemInfoPaths["status"]).Trim();
+            }
+
             double tr = 0;
-            if (_systemInfoPaths.ContainsKey("energy_now") && _systemInfoPaths.ContainsKey("power_now") && _systemInfoPaths.ContainsKey("energy_full")) {
-                double en = double.Parse(File.ReadAllText(_systemInfoPaths["energy_now"]).Trim()), pw = double.Parse(File.ReadAllText(_systemInfoPaths["power_now"]).Trim()), ef = double.Parse(File.ReadAllText(_systemInfoPaths["energy_full"]).Trim());
+            if (_systemInfoPaths.ContainsKey("energy_now") && 
+                _systemInfoPaths.ContainsKey("power_now") && 
+                _systemInfoPaths.ContainsKey("energy_full")) {
+                
+                double en = double.Parse(File.ReadAllText(_systemInfoPaths["energy_now"]).Trim());
+                double pw = double.Parse(File.ReadAllText(_systemInfoPaths["power_now"]).Trim());
+                double ef = double.Parse(File.ReadAllText(_systemInfoPaths["energy_full"]).Trim());
+                
                 if (pw > 0) tr = (s == "Discharging") ? en / pw : (ef - en) / pw;
             }
             return (p, s, tr);
-        } catch { return (0, "Error", 0); }
+        } catch (KeyNotFoundException ex) {
+            Console.WriteLine($"[Dashboard] Missing battery path key: {ex.Message}");
+            return (0, "Missing Path", 0);
+        } catch (Exception ex) {
+            Console.WriteLine($"[Dashboard] Battery info error: {ex.Message}");
+            return (0, "Error", 0);
+        }
     }
 
     private string RunCommand(string c, string a) {

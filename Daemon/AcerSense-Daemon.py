@@ -64,7 +64,12 @@ class AcerSenseManager:
 
     def __init__(self):
         '''The initial init (i know very nice description)'''
-        log.info(f"** Starting AcerSense daemon v{VERSION} **")
+        # 1. Load defaults first to get the DisableLogs preference
+        self.disable_logs = False
+        self._load_defaults()
+        
+        if not self.disable_logs:
+            log.info(f"** Starting AcerSense daemon v{VERSION} **")
         
         self.event_callback = None  # Callback for async broadcast
         self._last_fan_speeds = (0, 0)
@@ -72,12 +77,12 @@ class AcerSenseManager:
         # Check if linuwu_sense is installed
         if not os.path.exists("/sys/module/linuwu_sense"):
             log.error("linuwu_sense module not found. Please install the linuwu_sense driver first.")
-        else:
+        elif not self.disable_logs:
             log.info("linuwu_sense module found. Proceeding with initialization.")
         
         self.laptop_type = self._detect_laptop_type()
 
-        #added a delay so that driver sets up properly first
+        # Added a delay so that driver sets up properly first
         time.sleep(0.2)
 
         # If unknown laptop type detected, try restarting drivers (with limit)
@@ -90,13 +95,15 @@ class AcerSenseManager:
                 
                 if self._restart_drivers_and_daemon():
                     # The daemon will restart itself, so we should exit this instance
-                    log.info("Driver restart initiated, daemon will restart automatically")
+                    if not self.disable_logs:
+                        log.info("Driver restart initiated, daemon will restart automatically")
                     sys.exit(0)
                 else:
                     log.error(f"Failed to restart drivers (attempt {attempts}), continuing with limited functionality")
             else:
                 log.error(f"Maximum restart attempts ({self.MAX_RESTART_ATTEMPTS}) reached, giving up on driver restart")
-                log.info("Continuing with unknown laptop type and limited functionality")
+                if not self.disable_logs:
+                    log.info("Continuing with unknown laptop type and limited functionality")
         else:
             # Reset counter on successful detection
             self._reset_restart_attempts()
@@ -110,16 +117,60 @@ class AcerSenseManager:
         self.nos_active = False
         self.previous_profile_for_nos = None
         self._last_power_change_time = 0
+        
+        if not self.disable_logs:
+            log.info(f"Detected laptop type: {self.laptop_type.name}")
+            log.info(f"Base path: {self.base_path}")
+            log.info(f"Four-zone keyboard: {'Yes' if self.has_four_zone_kb else 'No'}")
+            log.info(f"Available features: {', '.join(self.available_features)}")
+
+        # Check if paths exist
+        if not os.path.exists(self.base_path) and self.laptop_type != LaptopType.UNKNOWN:
+            log.error(f"CRITICAL: Base path does not exist: {self.base_path}")
+            raise FileNotFoundError(f"Base path does not exist: {self.base_path}")
+
         # Read the initial real state to prevent race conditions on start
         self.last_known_profile = self.get_thermal_profile()
 
-        # Apply the correct default profile immediately and synchronously on startup
-        self._load_defaults()
+        # Apply initial profile synchronously
         self._apply_initial_profile()
+        self.power_monitor = None
 
     def register_event_callback(self, callback):
         """Register a callback function to be called when an event occurs"""
         self.event_callback = callback
+
+    def _is_ac_online(self) -> bool:
+        """Helper to check current power state using multiple standard sysfs paths"""
+        for p in ["/sys/class/power_supply/AC/online", "/sys/class/power_supply/ACAD/online", "/sys/class/power_supply/ADP1/online", "/sys/class/power_supply/AC0/online"]:
+            if os.path.exists(p) and self._read_file(p) == "1":
+                return True
+        return False
+
+    def sync_full_state(self):
+        """Atomic sync of all hardware states and side effects (Visuals, Power Optimizations)
+        Syncs with CURRENT profile to avoid overriding user selection on reconnect."""
+        try:
+            if not self.disable_logs:
+                log.info("UI connection detected. Syncing current hardware and visual state...")
+            
+            # 1. Detect Power Source
+            is_ac = self._is_ac_online()
+            
+            # 2. Get CURRENT hardware profile instead of forcing default
+            current_profile = self.get_thermal_profile()
+            if not current_profile:
+                current_profile = self.default_ac_profile if is_ac else self.default_bat_profile
+            
+            # 3. Re-apply everything for the CURRENT profile
+            # This ensures visuals and optimizations match hardware state
+            self.set_thermal_profile(current_profile, force=True)
+            
+            # 4. Broadcast current state so the new UI client is immediately updated
+            self._notify_event("power_state_changed", {"plugged_in": is_ac})
+            
+        except Exception as e:
+            log.error(f"Error during full sync: {e}")
 
     def _notify_event(self, event_type: str, data: Dict):
         """Notify registered callback of an event"""
@@ -135,7 +186,8 @@ class AcerSenseManager:
         try:
             current_profile = self.get_thermal_profile()
             if current_profile and current_profile != self.last_known_profile:
-                log.info(f"Hardware profile change detected via Netlink: {self.last_known_profile} -> {current_profile}")
+                if not self.disable_logs:
+                    log.info(f"Hardware profile change detected via Netlink: {self.last_known_profile} -> {current_profile}")
                 self.last_known_profile = current_profile
                 self._update_hyprland_visuals(current_profile)
                 self._notify_event("thermal_profile_changed", {"profile": current_profile})
@@ -151,6 +203,7 @@ class AcerSenseManager:
         """Load default profile preferences and opacity settings from config"""
         self.default_ac_profile = "balanced"
         self.default_bat_profile = "low-power"
+        self.disable_logs = False
         
         # Opacity defaults
         self.ac_active_opacity = 0.97
@@ -166,13 +219,58 @@ class AcerSenseManager:
                     self.default_ac_profile = config['General'].get('DefaultAcProfile', "balanced")
                     self.default_bat_profile = config['General'].get('DefaultBatProfile', "low-power")
                     self.hyprland_integration = config['General'].getboolean('HyprlandIntegration', fallback=False)
+                    self.disable_logs = config['General'].getboolean('DisableLogs', fallback=False)
                     
                     self.ac_active_opacity = config['General'].getfloat('AcActiveOpacity', 0.97)
                     self.ac_inactive_opacity = config['General'].getfloat('AcInactiveOpacity', 0.95)
                     self.bat_active_opacity = config['General'].getfloat('BatActiveOpacity', 1.0)
                     self.bat_inactive_opacity = config['General'].getfloat('BatInactiveOpacity', 1.0)
+                    
+                    if self.disable_logs:
+                        log.setLevel(logging.ERROR)
+                    else:
+                        log.setLevel(logging.DEBUG)
         except Exception as e:
             log.error(f"Failed to load defaults: {e}")
+
+    def set_logging_state(self, disabled: bool) -> bool:
+        """Enable or disable logging at runtime and save to config"""
+        try:
+            self.disable_logs = disabled
+            if disabled:
+                # Still allow ERROR level through
+                log.setLevel(logging.ERROR)
+                
+                # Performance & Privacy: Clear existing log files immediately
+                try:
+                    for handler in log.handlers:
+                        if isinstance(handler, logging.FileHandler):
+                            # Open in write mode to truncate the file
+                            with open(handler.baseFilename, 'w') as f:
+                                f.truncate(0)
+                except: pass
+                
+                log.error("Logging restricted to ERROR level and file cleared by user.")
+            else:
+                log.setLevel(logging.DEBUG)
+                log.info("Logging set to DEBUG level by user.")
+            
+            # Flush existing handlers to ensure the log level change is reflected immediately
+            for handler in log.handlers:
+                handler.flush()
+
+            config = configparser.ConfigParser()
+            config.read(CONFIG_PATH)
+            if 'General' not in config:
+                config['General'] = {}
+            config['General']['DisableLogs'] = str(disabled)
+            
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+            return True
+        except Exception as e:
+            log.error(f"CRITICAL: Failed to set logging state: {e}\n{traceback.format_exc()}")
+            return False
 
     def set_hyprland_opacity_settings(self, ac_active: float, ac_inactive: float, bat_active: float, bat_inactive: float) -> bool:
         """Set Hyprland opacity settings"""
@@ -599,8 +697,16 @@ class AcerSenseManager:
             return ""
 
     def _write_file(self, path: str, value: str) -> bool:
-        """Write to a VFS file"""
+        """Write to a VFS file only if value is different"""
         try:
+            # Performance optimization: skip redundant writes
+            try:
+                if os.path.exists(path):
+                    with open(path, 'r') as f:
+                        if f.read().strip() == str(value):
+                            return True
+            except: pass
+
             with open(path, 'w') as f:
                 f.write(str(value))
             return True
@@ -614,8 +720,9 @@ class AcerSenseManager:
             return ""
         return self._read_file("/sys/firmware/acpi/platform_profile")
 
-    def set_thermal_profile(self, profile: str) -> bool:
-        """Set thermal profile with validation and fallback"""
+    def set_thermal_profile(self, profile: str, force: bool = False) -> bool:
+        """Set thermal profile with validation and fallback.
+        'force' ensures side effects (optimizations, visuals) are applied even if profile matches."""
         if "thermal_profile" not in self.available_features:
             return False
 
@@ -640,9 +747,13 @@ class AcerSenseManager:
             
             log.info(f"Mapped to valid profile: {profile}")
 
+        # Write to hardware (internal _write_file already handles redundancy)
         success = self._write_file("/sys/firmware/acpi/platform_profile", profile)
-        if success:
-            self.last_known_profile = profile # Update internal state immediately
+        
+        # side-effects: Always apply these if forced or if write succeeded
+        # This ensures EPP, WiFi, Hyprland etc are correct even if the profile was already the same
+        if success or force:
+            self.last_known_profile = profile 
             self._update_hyprland_visuals(profile)
             self._apply_profile_optimizations(profile)
             
@@ -757,13 +868,22 @@ class AcerSenseManager:
             log.error(traceback.format_exc())
 
     def _write_file_safe(self, path, value):
-        """Helper to write to a file only if it exists, suppressing errors"""
+        """Helper to write to a file only if it exists and the value is different, suppressing errors"""
         if os.path.exists(path):
             try:
+                # Performance optimization: Only write if the value actually changed
+                try:
+                    with open(path, 'r') as f:
+                        if f.read().strip() == str(value):
+                            return True
+                except: pass
+
                 with open(path, 'w') as f:
-                    f.write(value)
+                    f.write(str(value))
+                return True
             except IOError:
                 pass # Permission denied or immutable
+        return False
 
     def _get_hyprland_info(self):
         """Find the active Hyprland instance signature, user, and Wayland display dynamically"""
@@ -1477,6 +1597,7 @@ class AcerSenseManager:
             "driver_version": self.get_driver_version(),
             "modprobe_parameter": self.current_modprobe_param,
             "hyprland_integration": self.hyprland_integration,
+            "disable_logs": self.disable_logs,
             "default_ac_profile": self.default_ac_profile,
             "default_bat_profile": self.default_bat_profile,
             "ac_active_opacity": self.ac_active_opacity,
@@ -1630,6 +1751,10 @@ class DaemonServer:
         # log.debug(f"New connection: {client_peer}")
         self.clients.add((reader, writer))
 
+        # A new UI client connected. Sync full state to ensure visuals and profiles 
+        # are correctly applied for the current user session.
+        self.manager.sync_full_state()
+
         try:
             while self.running:
                 # Read until newline separator (Framing)
@@ -1712,10 +1837,11 @@ class DaemonServer:
         # Filter noise from repetitive polling commands
         NOISY_COMMANDS = ["get_thermal_profile", "get_fan_speed", "get_all_settings", "get_supported_features"]
         
-        if command in NOISY_COMMANDS:
-            log.debug(f"Processing command: {command} with params: {params}")
-        else:
-            log.info(f"Processing command: {command} with params: {params}")
+        if not self.manager.disable_logs:
+            if command in NOISY_COMMANDS:
+                log.debug(f"Processing command: {command} with params: {params}")
+            else:
+                log.info(f"Processing command: {command} with params: {params}")
 
         try:
             if command == "get_all_settings":
@@ -1935,6 +2061,15 @@ class DaemonServer:
                     "success": success,
                     "data": {"enabled": enabled} if success else None,
                     "error": "Failed to set Hyprland integration" if not success else None
+                }
+
+            elif command == "set_logging_state":
+                disabled = params.get("disabled", False)
+                success = self.manager.set_logging_state(disabled)
+                return {
+                    "success": success,
+                    "data": {"disabled": disabled} if success else None,
+                    "error": "Failed to set logging state" if not success else None
                 }
 
             elif command == "set_default_profile_preference":
@@ -2186,40 +2321,35 @@ class AcerSenseDaemon:
 
         # Create default config if it doesn't exist
         if not os.path.exists(CONFIG_PATH):
-            log.info(f"Creating default config at {CONFIG_PATH}")
             config['General'] = {
                 'LogLevel': 'INFO',
-                'AutoDetectFeatures': 'True'
+                'AutoDetectFeatures': 'True',
+                'DisableLogs': 'False'
             }
-
-            # Create config directory if it doesn't exist
             os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-
-            # Write default config
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
         else:
-            # Load existing config
             config.read(CONFIG_PATH)
 
         self.config = config
         
-        # Load Hyprland Integration Setting
-        # Note: This attribute is stored on the daemon instance, but we need to pass it to the manager later or access it globally.
-        # For simplicity, we will set a class variable on AcerSenseManager if possible, or handle it during setup.
-        self.hyprland_integration = False
-        if 'General' in config and 'HyprlandIntegration' in config['General']:
-             self.hyprland_integration = config.getboolean('General', 'HyprlandIntegration', fallback=False)
-             log.info(f"Hyprland Integration: {'Enabled' if self.hyprland_integration else 'Disabled'}")
+        # 1. Get DisableLogs setting immediately
+        self.disable_logs = config['General'].getboolean('DisableLogs', fallback=False)
+        
+        # 2. Set Log Level
+        if self.disable_logs:
+            log.setLevel(logging.ERROR)
+        else:
+            log_level = config['General'].get('LogLevel', 'INFO').upper()
+            level = getattr(logging, log_level, logging.INFO)
+            log.setLevel(level)
 
-        # Set log level from config
-        if 'General' in config and 'LogLevel' in config['General']:
-            log_level = config['General']['LogLevel'].upper()
-            if log_level in ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'):
-                #log.setLevel(getattr(logging, log_level))
-                log.setLevel(logging.DEBUG)
-                
-                log.info(f"Log level set to {log_level}")
+        # Load Hyprland Integration Setting
+        self.hyprland_integration = config['General'].getboolean('HyprlandIntegration', fallback=False)
+
+        if not self.disable_logs:
+            log.info(f"Daemon configuration loaded. (LogLevel={log.getLevelName(log.getEffectiveLevel())})")
 
         return config
 
