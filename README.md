@@ -41,6 +41,10 @@ Many Acer Linux users find that standard drivers or tools don't fully support th
 - **Safety Clamping:** Manual fan control includes safety limits (20% minimum) to prevent fan stalling while allowing peak 100% cooling.
 - **Dynamic Initialization:** Uses `wait_for_file` logic during startup to ensure the daemon connects to the driver as soon as it's ready.
 
+### 🛡️ Reliable Driver Management (DKMS)
+- **Automatic Kernel Rebuilds:** The project now officially transitions to using [linuwu-sense-dkms](https://github.com/ZauJulio/linuwu-sense-dkms). This ensures that the kernel driver is automatically rebuilt every time you update your Linux kernel, preventing the application from breaking after system updates.
+- **Improved Stability:** Management via DKMS (Dynamic Kernel Module Support) provides a more robust way to handle out-of-tree kernel modules compared to manual compilation.
+
 ---
 
 ## ✨ Features
@@ -71,11 +75,13 @@ This script patches your Quickshell bar to show real-time AcerSense status icons
 ## 🛠️ Installation & Usage
 
 ### Prerequisites
-- `linuwu-sense` kernel driver (DKMS recommended).
-- `dotnet-sdk` (for the GUI).
-- `python3`, `evtest`, `socat`, `bc` (for full feature support).
+- **linuwu-sense driver:** Managed via [DKMS](https://github.com/ZauJulio/linuwu-sense-dkms) (The installer can automatically handle this for you).
+- **dotnet-sdk:** Required for building the GUI from source.
+- **Python3:** With `asyncio` (Standard in most modern distros).
+- **Utilities:** `evtest`, `socat`, `bc` (Required for full Nitro Button and script functionality).
 
 ### Local Setup
+The automated installer will check for the driver and offer to install the DKMS version if missing:
 ```bash
 ./local_setup.sh
 ```
@@ -102,6 +108,7 @@ This script patches your Quickshell bar to show real-time AcerSense status icons
 ## ❤️ Credits & Heritage
 
 - **[Linuwu Sense](https://github.com/0x7375646F/Linuwu-Sense):** The foundation that makes this project possible.
+- **[linuwu-sense-dkms](https://github.com/ZauJulio/linuwu-sense-dkms):** For the modern DKMS-based driver management.
 - **[DAMX (PXDiv)](https://github.com/PXDiv/Div-Acer-Manager-Max):** The original project this suite evolved from.
 - **[end-4](https://github.com/end-4/dots-hyprland):** For the incredible Hyprland dotfiles.
 
