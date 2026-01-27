@@ -58,19 +58,24 @@ Many Acer Linux users find that standard drivers or tools don't fully support th
 
 ---
 
-## 🎨 Desktop Integration (Hyprland & end-4)
+## 🛠️ Feature Usage & Integration
 
-### Dynamic Visuals
-Go to the **Misc** tab to enable Hyprland integration. The app will automatically manage window opacity and blur settings when you unplug your charger, helping you save battery while maintaining a beautiful desktop.
+### 1. Hyprland Integration Switch
+Located in the **Misc** (or System Settings) tab, this toggle provides a deep integration with the Hyprland compositor:
+- **How it works:** When enabled, the daemon injects a `source = ~/.config/hypr/acersense.conf` line into your `hyprland.conf`. 
+- **Dynamic Visuals:** It automatically manages window opacity and effect profiles based on your power state.
+- **Customization:**
+  - *Active/Inactive Opacity:* Use the sliders in the GUI to set your preferred transparency for focused and background windows.
+  - *Mode-Specific Configs:* The system creates `acersense_bat.conf` (power saving) and `acersense_charge.conf` (high performance) in your Hyprland directory. You can edit these files to customize specific blur, shadow, or animation settings for each power state.
 
-### end-4 Dotfiles Support
-If you use [end-4's Hyprland dots](https://github.com/end-4/dots-hyprland), you can integrate AcerSense directly into your bar:
-```bash
-./scripts/post_update_fixqshell.sh
-```
-This script patches your Quickshell bar to show real-time AcerSense status icons (Rocket, Leaf, etc.).
+### 2. Default Profile Selection
+Found in the **System Settings** tab, this feature allows you to automate your laptop's behavior:
+- **On AC Power:** Choose which profile (e.g., *Balanced* or *Performance*) should activate the moment you plug in your charger.
+- **On Battery:** Choose a power-efficient profile (e.g., *Quiet* or *Eco*) to be applied automatically when you unplug.
+- **Instant Response:** Thanks to the **Netlink Monitor**, these transitions happen in milliseconds without any user intervention.
 
----
+### 3. end-4 Dots Support (Quickshell)
+
 
 ## 🛠️ Installation & Usage
 
