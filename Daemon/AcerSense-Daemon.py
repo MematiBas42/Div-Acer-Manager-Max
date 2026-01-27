@@ -512,31 +512,36 @@ class AcerSenseManager:
             return ""
 
     def get_driver_version(self) -> str:
-        """Get Driver version from module or device path, with modinfo fallback"""
-        # 1. Try file-based paths first
+        """Get Driver version using DKMS (human-readable) or module fallback"""
+        # 1. Try DKMS status first (as used in setup.sh)
+        try:
+            cmd = "dkms status linuwu-sense | head -n 1 | cut -d'/' -f2 | cut -d',' -f1"
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            v = result.stdout.strip()
+            if v and "." in v: return v # Return if looks like a version number
+        except: pass
+
+        # 2. Try file-based paths
         version_paths = [
             os.path.join(self.base_path, "version"),
-            "/sys/module/linuwu_sense/version",
-            "/sys/module/linuwu_sense/src/version"
+            "/sys/module/linuwu_sense/version"
         ]
-        
         for path in version_paths:
             if os.path.isfile(path):
                 try:
                     with open(path, "r") as f:
                         v = f.read().strip()
-                        if v: return v
+                        if v and len(v) < 15: return v # Avoid long hashes
                 except: continue
         
-        # 2. Fallback to modinfo command
+        # 3. Last fallback: modinfo fields
         try:
-            # Try 'version' first, then 'srcversion'
             for field in ["version", "srcversion"]:
                 cmd = ["modinfo", "-F", field, "linuwu_sense"]
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode == 0:
                     v = result.stdout.strip()
-                    if v: return v
+                    if v: return v[:10] if len(v) > 15 else v # Shorten if it's a hash
         except: pass
         
         return "Unknown Version"
