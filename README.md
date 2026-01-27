@@ -6,7 +6,7 @@
   AcerSense Max
 </h1>
 
-**AcerSense Max** is a high-performance Linux management suite for Acer laptops (Nitro & Predator series). It provides deep hardware-level control through a modern, asynchronous, and event-driven architecture. This project is a complete evolution of the original [DAMX](https://github.com/PXDiv/Div-Acer-Manager-Max) by PXDiv, specifically optimized for enthusiasts using **Hyprland** and **end-4's dotfiles**.
+**AcerSense Max** is a high-performance Linux management suite for Acer laptops (Nitro & Predator series). It provides deep hardware-level control through a modern, asynchronous, and event-driven architecture. This project is a complete evolution of the original [DAMX](https://github.com/PXDiv/Div-Acer-Manager-Max) by PXDiv, specifically optimized for enthusiasts using **Hyprland** and [end-4's dotfiles](https://github.com/end-4/dots-hyprland).
 
 ![Application Screenshot](https://github.com/user-attachments/assets/d684c630-5b0a-482e-acea-0b3933987312)
 
@@ -26,11 +26,11 @@
 ### 🔋 Advanced Power & Thermal Control
 - **Dynamic Profile Sync:** Automatically switches profiles (e.g., *Quiet* on Battery, *Turbo* on AC) based on customizable user preferences.
 - **Deep System Tweaks:** Manages CPU EPP (Energy Performance Preference), WiFi Power Management, Turbo Boost, and PCIe ASPM policies automatically.
-- **Safety Clamping:** Manual fan control includes safety limits (20% minimum) to prevent stalling while allowing peak 100% bursts.
+- **NOS Mode:** A specialized "Nitro/Predator Overclocking System" that forces maximum cooling and performance with a single command/button.
 
 ### 🎨 Hyprland & Desktop Integration
 - **Dynamic Visuals:** Automatically adjusts window opacity, blur, and shadows based on the current power state.
-- **end-4 Dots Compatibility:** Includes a specialized post-update script to seamlessly integrate status indicators into the Quickshell bar.
+- **end-4 Dots Compatibility:** Fully compatible with [end-4's Hyprland dots](https://github.com/end-4/dots-hyprland). Includes specialized scripts to integrate status indicators into the Quickshell bar.
 - **Privacy Mode:** "Disable Logs" clears all log files and silences non-critical output for maximum privacy and disk efficiency.
 
 ---
@@ -42,27 +42,31 @@ To enable automatic visual changes (Opacity/Blur):
 1. Go to the **Misc** (or System Settings) tab in the GUI.
 2. Toggle **Enable Hyprland Integration**.
 3. Customize your desired opacity levels for both AC and Battery modes.
-   - *Active Window:* Opacity of the focused window.
-   - *Inactive Window:* Opacity of background windows.
-4. **Blur Control:** Edit `~/.config/hypr/acersense_bat.conf` and `acersense_charge.conf` to customize specific effects like blur or shadows for each mode.
+4. **Blur Control:** Edit `~/.config/hypr/acersense_bat.conf` and `acersense_charge.conf` to customize specific effects.
 
 ### 2. end-4 Dots Support (Quickshell)
-If you are using **end-4's Hyprland dotfiles**, you can add a real-time AcerSense indicator to your bar:
-1. Run the post-update script after installing or updating AcerSense:
-   ```bash
-   ./scripts/post_update_fixqshell.sh
-   ```
-2. This script will:
-   - Install a persistent Python event listener.
-   - Patch `UtilButtons.qml` and `PowerIndicator.qml` in your Quickshell config.
-   - Send a `USR1` signal to reload Quickshell instantly.
-3. You will now see a dynamic icon (Rocket, Leaf, or Speedometer) on your bar reflecting your current profile.
+If you are using **end-4's Hyprland dotfiles**, you can add a real-time AcerSense indicator to your bar by running the repair script:
+```bash
+./scripts/post_update_fixqshell.sh
+```
+This will patch your Quickshell configuration and reload the bar instantly with dynamic icons.
 
-### 3. Thermal Profiles
-- **Eco/Low-Power:** Maximizes battery life by disabling Turbo and setting CPU EPP to 'power'.
-- **Quiet:** Prioritizes silence and low fan speeds.
-- **Balanced:** Optimal mix for daily use.
-- **Performance/Turbo:** Maximizes clock speeds and cooling for gaming/heavy tasks.
+### 3. Nitro Button (Special Key)
+The physical Nitro key (N) is fully supported with long-press functionality:
+- **Short Press:** Cycles through thermal profiles (Quiet -> Balanced -> Performance).
+- **Long Press (>600ms):** Activates/Deactivates **NOS Mode** (Max fans + Peak performance).
+
+---
+
+## 📂 Scripts Directory Details
+
+The `scripts/` directory contains essential tools for installation and desktop integration:
+
+- **`local-setup.sh`**: The primary local installation script that builds the binaries and sets up system services.
+- **`NitroButton.sh`**: A background service that listens for the physical Nitro key using `evtest`. It delegates actions to the long-press handler.
+- **`long_press_handler.sh`**: Manages the logic for the Nitro key. It differentiates between short presses (cycle profiles) and long presses (NOS mode toggle).
+- **`post_update_fixqshell.sh`**: A comprehensive integration script for [end-4's dotfiles](https://github.com/end-4/dots-hyprland). It sets up a Python event listener and patches Quickshell's QML files to show an AcerSense indicator on the status bar.
+- **`setup_template.sh`**: The template used by the build system to generate the final installer script.
 
 ---
 
@@ -72,33 +76,21 @@ If you are using **end-4's Hyprland dotfiles**, you can add a real-time AcerSens
 - `linuwu-sense` kernel driver (DKMS recommended).
 - `dotnet-sdk` (for building the GUI).
 - `python` with `asyncio`.
+- `evtest` and `socat` (for Nitro Button functionality).
 
 ### Local Setup
-Clone the repository and run the automated installer:
 ```bash
 ./local_setup.sh
 ```
-*This script compiles the binaries, sets up systemd services, and configures socket permissions.*
 
 ---
 
 ## 🧭 Compatibility & Credits
 
 - **Compatibility:** Supports newer Nitro V models and most Predator series. Check the [Compatibility List](Compatibility.md).
-- **Linuwu Sense:** Special thanks to the [Linuwu Sense](https://github.com/0x7375646F/Linuwu-Sense) developers for kernel-level access.
+- **Linuwu Sense:** Special thanks to the [Linuwu Sense](https://github.com/0x7375646F/Linuwu-Sense) developers.
 - **Original Author:** Built upon the foundations laid by [PXDiv (DAMX)](https://github.com/PXDiv/Div-Acer-Manager-Max).
 
 ---
-
-## 📂 Troubleshooting & Logs
-
-If the laptop type is "UNKNOWN" or connection fails:
-1. Check driver status: `lsmod | grep linuwu_sense`
-2. Review logs:
-   - **Daemon:** `/var/log/AcerSenseDaemon.log`
-   - **GUI:** `/tmp/AcerSenseGUI.log`
-3. Restart service: `sudo systemctl restart acersense-daemon`
-
----
 **License:** GNU General Public License v3.0  
-*Contributions and testing on different Acer models are highly welcome!*
+*Help test on different Acer laptop models and contribute!*

@@ -3,12 +3,16 @@
 # NitroButton Service
 # Listens for the Nitro key (KEY_PROG3 / code 425) and delegates to long_press_handler.sh.
 
-# Path to the handler script (Custom path from user config)
-HANDLER_SCRIPT="$HOME/.config/hypr/custom/scripts/long_press_handler.sh"
+# Path to the handler script (Prioritize local project script for portability)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HANDLER_SCRIPT="$SCRIPT_DIR/long_press_handler.sh"
 
 if [ ! -f "$HANDLER_SCRIPT" ]; then
-    # Try alternate path if not found
-    HANDLER_SCRIPT="/opt/acersense/keyboard/long_press_handler.sh"
+    # Fallback to user custom path or system path
+    HANDLER_SCRIPT="$HOME/.config/hypr/custom/scripts/long_press_handler.sh"
+    if [ ! -f "$HANDLER_SCRIPT" ]; then
+        HANDLER_SCRIPT="/opt/acersense/keyboard/long_press_handler.sh"
+    fi
 fi
 
 # Find keyboard device
