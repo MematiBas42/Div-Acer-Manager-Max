@@ -75,9 +75,21 @@ Found in the **System Settings** tab, this feature allows you to automate your l
 - **Instant Response:** Thanks to the **Netlink Monitor**, these transitions happen in milliseconds without any user intervention.
 
 ### 3. end-4 Dots Support (Quickshell)
+For users of [end-4's Hyprland dotfiles](https://github.com/end-4/dots-hyprland), we provide a specialized integration script:
+- **Automatic Patching:** Run `./scripts/post_update_fixqshell.sh` after installation.
+- **What it does:**
+  - **Python Event Listener:** Deploys a lightweight, persistent listener that communicates with the AcerSense socket to capture real-time profile and power events.
+  - **Dynamic Bar Icons:** Patches your Quickshell bar (`PowerIndicator.qml` and `UtilButtons.qml`) to add a dedicated AcerSense icon.
+  - **Visual Feedback:** The bar will now show dynamic Material Symbols (e.g., a Rocket for Turbo, a Leaf for Eco) that change instantly as your laptop's state updates.
+  - **Instant UI Reload:** Automatically sends a `USR1` signal to Quickshell to apply the changes without restarting your session.
 
+### 4. Nitro Button (Physical Key)
+The physical Nitro key (N) is fully supported with smart long-press logic:
+- **Short Press:** Cycles through available thermal profiles (Quiet -> Balanced -> Performance).
+- **Long Press (>600ms):** Toggles **NOS Mode** (Instant Max Fans + Peak Performance).
+- **Service-Based:** Managed by the `NitroButton.sh` background service using `evtest` for sub-millisecond responsiveness.
 
-## 🛠️ Installation & Usage
+---
 
 ### Prerequisites
 - **linuwu-sense driver:** Managed via [DKMS](https://github.com/ZauJulio/linuwu-sense-dkms) (The installer can automatically handle this for you).
