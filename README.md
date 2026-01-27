@@ -6,7 +6,9 @@
   AcerSense Max
 </h1>
 
-**AcerSense Max** is a high-performance Linux management suite for Acer laptops (Nitro & Predator series). It provides deep hardware-level control through a modern, asynchronous, and event-driven architecture. This project is a complete evolution of the original [DAMX](https://github.com/PXDiv/Div-Acer-Manager-Max) by PXDiv, specifically optimized for enthusiasts using **Hyprland** and [end-4's dotfiles](https://github.com/end-4/dots-hyprland).
+**AcerSense Max** is a professional-grade Linux management suite for Acer laptops (Nitro & Predator series). It provides deep hardware-level control through a modern, asynchronous, and event-driven architecture. 
+
+This project is a complete evolution of the original [DAMX](https://github.com/PXDiv/Div-Acer-Manager-Max) by PXDiv. It combines the aesthetic of NitroSense/PredatorSense with an optimized backend designed for extreme efficiency and modern Linux desktop environments (especially Hyprland).
 
 ![Application Screenshot](https://github.com/user-attachments/assets/d684c630-5b0a-482e-acea-0b3933987312)
 
@@ -16,81 +18,93 @@
 
 ---
 
-## 🚀 Key Improvements (Max Edition)
+## ❓ Why this Rework?
 
-### 🧠 Modern Event-Driven Architecture
-- **Netlink Monitor:** Replaced polling with Kernel Netlink events. The system wakes up instantly only when power sources change or physical buttons (Fn+F) are pressed. **0% Idle CPU Usage.**
-- **Asyncio Core:** Python `asyncio` allows non-blocking IPC, supporting simultaneous updates across GUI, Quickshell, and CLI.
-- **Smart I/O Optimization:** Intelligent logic that skips redundant writes to `/sys` and `/proc`, preserving SSD lifespan.
-
-### 🔋 Advanced Power & Thermal Control
-- **Dynamic Profile Sync:** Automatically switches profiles (e.g., *Quiet* on Battery, *Turbo* on AC) based on customizable user preferences.
-- **Deep System Tweaks:** Manages CPU EPP (Energy Performance Preference), WiFi Power Management, Turbo Boost, and PCIe ASPM policies automatically.
-- **NOS Mode:** A specialized "Nitro/Predator Overclocking System" that forces maximum cooling and performance with a single command/button.
-
-### 🎨 Hyprland & Desktop Integration
-- **Dynamic Visuals:** Automatically adjusts window opacity, blur, and shadows based on the current power state.
-- **end-4 Dots Compatibility:** Fully compatible with [end-4's Hyprland dots](https://github.com/end-4/dots-hyprland). Includes specialized scripts to integrate status indicators into the Quickshell bar.
-- **Privacy Mode:** "Disable Logs" clears all log files and silences non-critical output for maximum privacy and disk efficiency.
+Many Acer Linux users find that standard drivers or tools don't fully support their specific Nitro or Predator models. This version was inspired by the need for a tool that just *works* out of the box while looking as good as the official Windows software. By building on the [linuwu_sense](https://github.com/0x7375646F/Linuwu-Sense) driver, we've enabled features that were previously inaccessible on Linux, such as proper thermal profiles and per-zone RGB control.
 
 ---
 
-## 🛠️ Feature Usage & Integration
+## 🚀 Max Edition Improvements
 
-### 1. Hyprland Integration
-To enable automatic visual changes (Opacity/Blur):
-1. Go to the **Misc** (or System Settings) tab in the GUI.
-2. Toggle **Enable Hyprland Integration**.
-3. Customize your desired opacity levels for both AC and Battery modes.
-4. **Blur Control:** Edit `~/.config/hypr/acersense_bat.conf` and `acersense_charge.conf` to customize specific effects.
+### 🧠 Modern Event-Driven Architecture
+- **Netlink Monitor:** Replaced CPU-heavy polling with Kernel Netlink events. The system sleeps and wakes up instantly only when power sources change or hardware buttons (Fn+F) are pressed. **0% Idle CPU Usage.**
+- **Asyncio Core:** The daemon uses Python's `asyncio` for non-blocking communication, allowing instantaneous synchronization between the hardware, GUI, and bar indicators.
+- **Smart I/O Optimization:** Intelligent logic that skips redundant writes to `/sys` files if values haven't changed, preserving SSD lifespan.
 
-### 2. end-4 Dots Support (Quickshell)
-If you are using **end-4's Hyprland dotfiles**, you can add a real-time AcerSense indicator to your bar by running the repair script:
+### 🔋 Advanced Power & Thermal Control
+- **Dynamic Profile Sync:** Automatically switches profiles (e.g., *Quiet* on Battery, *Turbo* on AC) based on your preferences.
+- **Deep System Tweaks:** Manages CPU EPP (Energy Performance Preference), WiFi Power Management, Turbo Boost, and PCIe ASPM policies automatically per profile.
+- **NOS Mode:** A specialized "Nitro/Predator Overclocking System" that forces maximum cooling and performance with long-press support.
+
+### ❄️ Fan & Sensor Control
+- **Real-Time Monitoring:** Dashboard featuring an accurate RPM feedback and multi-core temperature averaging.
+- **Safety Clamping:** Manual fan control includes safety limits (20% minimum) to prevent fan stalling while allowing peak 100% cooling.
+- **Dynamic Initialization:** Uses `wait_for_file` logic during startup to ensure the daemon connects to the driver as soon as it's ready.
+
+---
+
+## ✨ Features
+
+- 🔋 **Performance Profiles:** Eco, Quiet, Balanced, Performance, Turbo (Turbo is enabled only on AC for supported models).
+- 🌡 **Fan Control:** Full control over CPU and GPU fans with real-time RPM display.
+- 🎨 **RGB Lighting:** 4-zone keyboard support with modes like Wave, Breathing, and Neon.
+- 💡 **Display & Sound:** LCD Override settings and Boot Animation/Sound toggles.
+- 🛡 **Internals Manager:** Force Nitro/Predator model identification or reset drivers with a single click.
+- 🌑 **Privacy Mode:** "Disable Logs" stops all non-critical disk writes and wipes existing logs instantly.
+
+---
+
+## 🎨 Desktop Integration (Hyprland & end-4)
+
+### Dynamic Visuals
+Go to the **Misc** tab to enable Hyprland integration. The app will automatically manage window opacity and blur settings when you unplug your charger, helping you save battery while maintaining a beautiful desktop.
+
+### end-4 Dotfiles Support
+If you use [end-4's Hyprland dots](https://github.com/end-4/dots-hyprland), you can integrate AcerSense directly into your bar:
 ```bash
 ./scripts/post_update_fixqshell.sh
 ```
-This will patch your Quickshell configuration and reload the bar instantly with dynamic icons.
-
-### 3. Nitro Button (Special Key)
-The physical Nitro key (N) is fully supported with long-press functionality:
-- **Short Press:** Cycles through thermal profiles (Quiet -> Balanced -> Performance).
-- **Long Press (>600ms):** Activates/Deactivates **NOS Mode** (Max fans + Peak performance).
+This script patches your Quickshell bar to show real-time AcerSense status icons (Rocket, Leaf, etc.).
 
 ---
 
-## 📂 Scripts Directory Details
-
-The `scripts/` directory contains essential tools for installation and desktop integration:
-
-- **`local-setup.sh`**: The primary local installation script that builds the binaries and sets up system services.
-- **`NitroButton.sh`**: A background service that listens for the physical Nitro key using `evtest`. It delegates actions to the long-press handler.
-- **`long_press_handler.sh`**: Manages the logic for the Nitro key. It differentiates between short presses (cycle profiles) and long presses (NOS mode toggle).
-- **`post_update_fixqshell.sh`**: A comprehensive integration script for [end-4's dotfiles](https://github.com/end-4/dots-hyprland). It sets up a Python event listener and patches Quickshell's QML files to show an AcerSense indicator on the status bar.
-- **`setup_template.sh`**: The template used by the build system to generate the final installer script.
-
----
-
-## 🛠️ Installation
+## 🛠️ Installation & Usage
 
 ### Prerequisites
 - `linuwu-sense` kernel driver (DKMS recommended).
-- `dotnet-sdk` (for building the GUI).
-- `python` with `asyncio`.
-- `evtest` and `socat` (for Nitro Button functionality).
+- `dotnet-sdk` (for the GUI).
+- `python3`, `evtest`, `socat`, `bc` (for full feature support).
 
 ### Local Setup
 ```bash
 ./local_setup.sh
 ```
 
+### Script Details (`scripts/`)
+- **`local-setup.sh`**: Main installer.
+- **`NitroButton.sh`**: Background service listening for the physical Nitro key.
+- **`long_press_handler.sh`**: Handles Short Press (Cycle Profile) and Long Press (NOS Mode).
+- **`post_update_fixqshell.sh`**: Automated repair/integration script for end-4 dots.
+
 ---
 
-## 🧭 Compatibility & Credits
+## 🧭 Troubleshooting
 
-- **Compatibility:** Supports newer Nitro V models and most Predator series. Check the [Compatibility List](Compatibility.md).
-- **Linuwu Sense:** Special thanks to the [Linuwu Sense](https://github.com/0x7375646F/Linuwu-Sense) developers.
-- **Original Author:** Built upon the foundations laid by [PXDiv (DAMX)](https://github.com/PXDiv/Div-Acer-Manager-Max).
+- **UNKNOWN Laptop Type:** This usually means the driver isn't loaded yet. The daemon will attempt to restart the driver automatically (up to 20 times).
+- **GUI not connecting:** Ensure the daemon service is running: `sudo systemctl status acersense-daemon`.
+- **Logs:** 
+  - Daemon: `/var/log/AcerSenseDaemon.log`
+  - GUI: `/tmp/AcerSenseGUI.log`
+- **Driver Check:** `lsmod | grep linuwu_sense` should return a result.
+
+---
+
+## ❤️ Credits & Heritage
+
+- **[Linuwu Sense](https://github.com/0x7375646F/Linuwu-Sense):** The foundation that makes this project possible.
+- **[DAMX (PXDiv)](https://github.com/PXDiv/Div-Acer-Manager-Max):** The original project this suite evolved from.
+- **[end-4](https://github.com/end-4/dots-hyprland):** For the incredible Hyprland dotfiles.
 
 ---
 **License:** GNU General Public License v3.0  
-*Help test on different Acer laptop models and contribute!*
+*Contributions and testing on different Acer models are highly welcome!*
