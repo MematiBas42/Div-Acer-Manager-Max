@@ -2349,16 +2349,16 @@ class AcerSenseDaemon:
         self.hyprland_integration = config['General'].getboolean('HyprlandIntegration', fallback=False)
 
         if not self.disable_logs:
-            log.info(f"Daemon configuration loaded. (LogLevel={log.getLevelName(log.getEffectiveLevel())})")
+            log.info(f"Daemon configuration loaded. (LogLevel={logging.getLevelName(log.getEffectiveLevel())})")
 
         return config
 
     def setup(self):
         """Set up the daemon"""
-        # Load configuration first
-        self.load_config()
-
         try:
+            # Load configuration first (inside try-except now)
+            self.load_config()
+
             # Initialize daemon manager
             self.manager = AcerSenseManager()
             # Pass config setting to manager
@@ -2369,13 +2369,14 @@ class AcerSenseDaemon:
             self.power_monitor.start_monitoring()
 
             # Log detected features
-            features_str = ", ".join(sorted(self.manager.available_features))
-            log.info(f"Detected features: {features_str}")
+            if not self.disable_logs:
+                features_str = ", ".join(sorted(self.manager.available_features))
+                log.info(f"Detected features: {features_str}")
 
             return True
         except Exception as e:
-            log.error(f"Failed to set up daemon: {e}")
-            log.error(traceback.format_exc())
+            # This will now catch and LOG errors even during load_config
+            log.error(f"FATAL: Failed to set up daemon: {e}\n{traceback.format_exc()}")
             return False
     
 
@@ -2454,30 +2455,39 @@ def parse_args():
 
 def main():
     """Main function"""
-    args = parse_args()
+    try:
+        args = parse_args()
 
-    # Set log level based on verbosity
-    if args.verbose:
-        log.setLevel(logging.DEBUG)
-        log.debug("Debug logging enabled")
+        # Set log level based on verbosity
+        if args.verbose:
+            log.setLevel(logging.DEBUG)
+            log.debug("Debug logging enabled")
 
-    # Use custom config path if provided
-    global CONFIG_PATH
-    if args.config:
-        CONFIG_PATH = args.config
+        # Use custom config path if provided
+        global CONFIG_PATH
+        if args.config:
+            CONFIG_PATH = args.config
 
-    daemon = AcerSenseDaemon()
-    if daemon.setup():
-        try:
-            log.info(f"Driver Version: {daemon.manager.get_driver_version()}")
-            asyncio.run(daemon.run())
-        except KeyboardInterrupt:
-            pass # Handled by signal handler usually
-        except Exception as e:
-            log.error(f"Fatal error: {e}")
+        daemon = AcerSenseDaemon()
+        if daemon.setup():
+            try:
+                if not daemon.disable_logs:
+                    log.info(f"Driver Version: {daemon.manager.get_driver_version()}")
+                asyncio.run(daemon.run())
+            except KeyboardInterrupt:
+                pass 
+            except Exception as e:
+                log.error(f"FATAL: Runtime error: {e}\n{traceback.format_exc()}")
+                sys.exit(1)
+        else:
+            log.error("FATAL: Daemon failed to set up during initialization.")
             sys.exit(1)
-    else:
-        log.error("Failed to set up daemon, exiting...")
+    except Exception as e:
+        # Final safety net for errors before setup completes
+        try:
+            log.error(f"FATAL: Global entry-point crash: {e}\n{traceback.format_exc()}")
+        except:
+            print(f"CRITICAL: Failed to log global crash: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
