@@ -80,10 +80,10 @@ class AcerSenseManager:
         elif not self.disable_logs:
             log.info("linuwu_sense module found. Proceeding with initialization.")
         
+        # 2. Wait for driver files to appear (wait_for_file logic)
+        self._wait_for_driver_files(timeout=2.0)
+        
         self.laptop_type = self._detect_laptop_type()
-
-        # Added a delay so that driver sets up properly first
-        time.sleep(0.2)
 
         # If unknown laptop type detected, try restarting drivers (with limit)
         if self.laptop_type == LaptopType.UNKNOWN:
@@ -190,6 +190,7 @@ class AcerSenseManager:
                     log.info(f"Hardware profile change detected via Netlink: {self.last_known_profile} -> {current_profile}")
                 self.last_known_profile = current_profile
                 self._update_hyprland_visuals(current_profile)
+                self._apply_profile_optimizations(current_profile) # Added: Apply EPP/Turbo/WiFi on hardware button press
                 self._notify_event("thermal_profile_changed", {"profile": current_profile})
                 
                 # Also notify fan speeds once as they usually change with profile
@@ -588,6 +589,26 @@ class AcerSenseManager:
             log.error(f"Unexpected error during restart (attempt {attempts}): {e}")
             return False
             
+    def _wait_for_driver_files(self, timeout: float = 2.0):
+        """Wait for the Nitro/Predator driver paths to appear in /sys"""
+        start_time = time.time()
+        predator_path = "/sys/module/linuwu_sense/drivers/platform:acer-wmi/acer-wmi/predator_sense"
+        nitro_path = "/sys/module/linuwu_sense/drivers/platform:acer-wmi/acer-wmi/nitro_sense"
+        
+        if not self.disable_logs:
+            log.info(f"Waiting for driver files to initialize (max {timeout}s)...")
+            
+        while time.time() - start_time < timeout:
+            if os.path.exists(predator_path) or os.path.exists(nitro_path):
+                if not self.disable_logs:
+                    log.info(f"Driver files detected after {time.time() - start_time:.3f}s")
+                return True
+            time.sleep(0.05) # Poll every 50ms
+            
+        if not self.disable_logs:
+            log.warning("Timeout reached waiting for driver files. Proceeding with detection.")
+        return False
+
     def _detect_laptop_type(self) -> LaptopType:
         """Detect whether this is a Predator or Nitro laptop"""
         predator_path = "/sys/module/linuwu_sense/drivers/platform:acer-wmi/acer-wmi/predator_sense"
@@ -2267,13 +2288,27 @@ class DaemonServer:
             elif command == "activate_nos":
                 if not self.manager.nos_active:
                     self.manager.nos_active = True
+                    # 1. Save current state
                     self.manager.previous_profile_for_nos = self.manager.get_thermal_profile()
+                    
+                    # 2. Determine best profile (Performance if on AC, Balanced if on Battery)
+                    best_profile = "balanced-performance"
+                    available = self.manager.get_thermal_profile_choices()
+                    if self.manager._is_ac_online(): # Using internal helper instead of broken detector ref
+                        if "performance" in available: best_profile = "performance"
+                        elif "balanced-performance" in available: best_profile = "balanced-performance"
+                    else:
+                        if "balanced" in available: best_profile = "balanced"
+                    
+                    # 3. Apply
                     if "fan_speed" in self.manager.available_features:
                         self.manager.set_fan_speed(100, 100)
-                    self.manager.set_thermal_profile("balanced-performance")
-                    # Force events for GUI sync
-                    self.broadcast_event("thermal_profile_changed", {"profile": "balanced-performance"})
+                    self.manager.set_thermal_profile(best_profile)
+                    
+                    # 4. Instant Sync
+                    self.broadcast_event("thermal_profile_changed", {"profile": best_profile})
                     self.broadcast_event("fan_speed_changed", {"cpu": "100", "gpu": "100"})
+                    
                     return {"success": True, "message": "NOS Mode Activated"}
                 return {"success": False, "message": "NOS already active"}
 

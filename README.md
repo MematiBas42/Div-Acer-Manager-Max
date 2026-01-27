@@ -1,127 +1,88 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kleqing/AcerSense/refs/heads/main/AcerSense/icon.png" alt="icon" width="80" style="vertical-align: middle;">
+  <img src="https://raw.githubusercontent.com/kleqing/AcerSense/refs/heads/main/AcerSense/icon.png" alt="icon" width="100" style="vertical-align: middle;">
 </p>
 
 <h1 align="center">
-  AcerSense
+  AcerSense Max
 </h1>
 
-**AcerSense** is the ***reworked*** version of the original [DAMX](https://github.com/PXDiv/Div-Acer-Manager-Max) by PXDiv, which is a Linux GUI for Acer laptops using Linuwu Sense drivers — all wrapped in a modern Avalonia-based UI. This is a replicates of NitroSense and PredatorSense but for Linux!
+**AcerSense Max** is a high-performance, professional-grade Linux management suite for Acer laptops (Nitro & Predator series). It provides deep hardware-level control through a modern, asynchronous, and event-driven architecture. This project is a complete evolution of the original [DAMX](https://github.com/PXDiv/Div-Acer-Manager-Max) by PXDiv, optimized for modern Linux environments and desktop enthusiasts (especially Hyprland users).
 
-> [!CAUTION]
-> The project will be development more if there was a huge changed with the origin branch
-
-![Image](https://github.com/user-attachments/assets/d684c630-5b0a-482e-acea-0b3933987312)
+![Application Screenshot](https://github.com/user-attachments/assets/d684c630-5b0a-482e-acea-0b3933987312)
 
 <h4 align="center" style="font-style: italic">
- The forked version of <a href="https://github.com/PXDiv/Div-Acer-Manager-Max">DAMX</a> with better UI
-</h4>  
+  "The smartest and most efficient control center for Nitro and Predator laptops on Linux."
+</h4>
 
-## ❓ Why "Rework"
+---
 
-- Uh,... It is just my sudden inspiration. After finding a lot of 'NitroSense for Linux' in the internet, I found that every tools/drivers are not supported for my model. Even I edited the [linuwu_sense](https://github.com/0x7375646F/Linuwu-Sense/blob/main/src/linuwu_sense.c) to make the DMI matched with my device, Linuwu Sense still not supported my device. After read the README, I found that a GUI tool called DAMX that can supported my device by edit the modified version of [linuwu_sense](https://github.com/PXDiv/Div-Linuwu-Sense) (PXDiv). But the UI is too bad for me so I fork his project and modify a bit.
+## 🚀 Advanced Features (Max Edition)
 
-## ✨ Features
+### 🧠 Modern Event-Driven Architecture
+- **Netlink Monitor:** Replaced inefficient polling with Kernel Netlink events. The system sleeps and wakes up instantly only when power sources change or hardware buttons (Fn+F) are pressed. **0% Idle CPU Usage.**
+- **Asyncio Core:** The daemon is built on Python's `asyncio` for non-blocking IPC communication, allowing simultaneous updates to the GUI, Quickshell, and other clients.
+- **Smart I/O Optimization:** Intelligent file-writing logic that skips redundant writes to `/sys` and `/proc` if values haven't changed, preserving SSD lifespan and reducing latency.
 
-***All the original features of the DAMX are still here. My version is just modify the UI to make it look better!***
+### 🔋 Power & Thermal Management
+- **Dynamic Profile Sync:** Automatically switches between profiles (e.g., Quiet on Battery, Turbo on AC) based on customizable user preferences.
+- **Deep System Optimizations:** Applies low-level tweaks including CPU EPP (Energy Performance Preference), WiFi Power Management, Turbo Boost toggles, and PCIe ASPM policies per profile.
+- **NOS Mode:** A specialized "Nitro/Predator Overclocking System" that forces maximum cooling and performance with a single command/button.
 
-- 🔋 **Performance / Thermal Profiles**
-  - Eco, Silent, Balanced, Performance, Turbo — automatically adjusted based on AC/battery status
-  (e.g., Turbo hidden when on battery or unsupported). **Only Nitro V (not 5) and Predator has this feature**
+### ❄️ Fan & Sensor Control
+- **Real-Time Monitoring:** High-precision dashboard showing RPM, temperatures (multi-core average), and utilization metrics via `LiveCharts`.
+- **Safety Clamping:** Manual fan control includes safety limits (20% minimum) to prevent fan stalling while allowing full 100% bursts.
+- **Smooth Transition:** Intelligent initialization that waits for driver availability (`wait_for_file`) instead of using fixed delays.
 
-- 🌡 **Fan Control**
-  - Manual and auto fan speed modes
-  - Manual disabled automatically when in Quiet profile
+### 🎨 Desktop & UI Integration
+- **Hyprland Integration:** Automatically manages window opacity, blur, and shadows based on the current power state and thermal profile.
+- **Modern Avalonia UI:** A clean, responsive XAML-based interface that dynamically hides unsupported features based on hardware detection.
+- **Privacy & Logging Control:** A dedicated "Disable Logs" mode that silences all non-critical output and clears existing log files to save disk space and enhance privacy.
 
-- 💡 **LCD Override Setting**
-  - Direct control over LCD power behavior
+---
 
-- 🎨 **Keyboard Backlight Control**
-  - Customize the keyboard backlight timeout
-  - Auto set keyboard backlight brightness slider based on the [acer-wmi](https://github.com/torvalds/linux/blob/master/drivers/platform/x86/acer-wmi.c) output
+## ✨ Core Functionalities
 
-- 🔊 **Boot Animation and Sound Toggle**
-  - Enable/disable Acer's startup animations and sounds
+- 🔋 **Profills:** Eco, Quiet, Balanced, Performance, Turbo.
+- 🌡 **Fans:** Manual and Auto modes with real-time RPM feedback.
+- 💡 **Settings:** LCD Override, Keyboard Backlight Timeout, Boot Sound/Animation toggles.
+- 🎨 **RGB:** 4-zone keyboard lighting support with effect management (Static, Breathing, Wave, etc.).
+- 🛠 **Internals Manager:** Advanced tools for forcing model detection (Nitro/Predator v4) and driver restarts.
 
-- 💻 **Live System Info Display**
-  - Shows real-time performance profile, fan settings, calibration state, and more
+---
 
-- 🧠 **Smart Daemon (Low Resource Use)**
-  - Auto-detects feature support per device
-  - Communicates with GUI in real-time
-  - Lightweight: consume less RAM
-  - Can run **independently** of GUI
-  - Recursive restart to fix software issues similar to those on Windows
+## 🛠️ Installation
 
-- 🖥️ **Modern GUI**
-  - Avalonia-based, clean and responsive
-  - Realtime Monitoring with Dashboard and accurate Tempreature Readings
-  - Dynamic UI hides unsupported features
-  - Real-time feedback from daemon
+### Prerequisites
+- `linuwu-sense` kernel driver (DKMS version recommended).
+- `dotnet-sdk` (for building from source).
+- `python` with `asyncio`.
 
-## 🧭 Compatibilty
-Please check the compatibility at here: [Compatibility List](https://github.com/kleqing/AcerSense/blob/main/Compatibility.md)
+### Local Setup
+Clone the repository and run the automated build and install script:
+```bash
+./local_setup.sh
+```
+*This script will compile the GUI, prepare the daemon, set up systemd services, and configure necessary socket permissions.*
 
-> Note that the compatibility list may be out date if using this version because it comes with my custom linuwu-sense driver, not from the author!
+---
 
-## 🖥️ DAMX Installation Guide
+## 🧭 Compatibility & Credits
 
-1. Download the latest release from the **Releases** section.
+- **Compatibility:** Please refer to the [Compatibility List](Compatibility.md) for supported models. Note that this version supports newer Nitro V models and most Predator series laptops.
+- **Linuwu Sense:** Special thanks to the [Linuwu Sense](https://github.com/0x7375646F/Linuwu-Sense) developers for the kernel-level access.
+- **Original Author:** Built upon the foundations laid by [PXDiv (DAMX)](https://github.com/PXDiv/Div-Acer-Manager-Max).
 
-2. Extract the downloaded package.
+---
 
-3. Make the `setup.sh` script executable:
+## 📂 Troubleshooting & Logs
 
-   ```bash
-   chmod +x setup.sh
-   ```
-  
-4. Run the script:
+If you encounter issues like "UNKNOWN" laptop type or connection errors:
+1. Check if the driver is loaded: `lsmod | grep linuwu_sense`
+2. Review the logs:
+   - **Daemon:** `/var/log/AcerSenseDaemon.log`
+   - **GUI:** `/tmp/AcerSenseGUI.log`
+3. Restart the service: `sudo systemctl restart acersense-daemon`
 
-   - Right-click the setup file and choose **“Run in Terminal”**,
-     or open a terminal in the folder and run:
-
-     ```bash
-     sudo ./setup.sh
-     ```
-  - If you forgot sudo, the script can automatically check if it run with sudo or not then it will notify you to type password of the root user
-
-5. When prompted, choose an option from the menu:
-
-   - `1` → Install
-   - `2` → Install without drivers
-   - `3` → Uninstall
-   - `4` → Reinstall/Update
-   - `5` → Check services status
-   - `q` → Quit
-
-6. Reboot your system after the installation completes.
-
-## 🖥️ Troubleshooting
-
-Known issues: [Increase backlight keyboard](https://github.com/kleqing/Linuwu-Sense#%EF%B8%8F-known-issue-fn--f10-keyboard-backlight-key)
-
-You can also check the logs at /var/log/AcerSenseDaemon.log
-
-If you get UNKNOWN as Laptop type, try restarting (it happens somethings). 
-But if it still happenes that might mean the Drivers Installation failed, Make sure you have the approprite kernel headers to compile the drivers.
-
-Also, check out the [FAQ page](https://github.com/kleqing/AcerSense/blob/main/FAQ.md) before opening any issues.
-
-Please open a new issue or discussion and include the logs to get support and help the project grow if you need any info, report a bug or just give ideas for the future versions of DAMX
-
-## ❤️ Credit
-
-- The custom drivers for this project [Linuwu Sense](https://github.com/kleqing/Linuwu-Sense) is a forked from [Div-Linuwu Sense](https://github.com/PXDiv/Div-Linuwu-Sense) project which is built entirely on top of the [Linuwu Sense](https://github.com/0x7375646F/Linuwu-Sense) drivers — huge thanks to their developers for enabling hardware-level access on Acer laptops.
-- [Gemini](https://gemini.google.com/) for the combination of the PredatorSense and NitroSense icon
-
-## 🤝 Contributing
-
-- Report bugs or request features via GitHub Issues
-- Submit pull requests to improve code or UI
-- Help test on different Acer laptop models
-
-## 📄 License
-
-This project is licensed under the **GNU General Public License v3.0**.  
-See the [LICENSE](LICENSE) file for details.
+---
+**License:** GNU General Public License v3.0  
+*Contributions and testing on different Acer models are highly welcome!*
