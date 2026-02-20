@@ -1383,9 +1383,9 @@ class AcerSenseManager:
         if cpu == 0 and gpu == 0:
             write_val = "0,0"
         else:
-            # Clamp between 20-100 to prevent stalling
-            cpu = max(20, min(100, cpu))
-            gpu = max(20, min(100, gpu))
+            # Clamp between 5-100 to prevent stalling
+            cpu = max(5, min(100, cpu))
+            gpu = max(5, min(100, gpu))
             write_val = f"{cpu},{gpu}"
 
         log.info(f"Setting fan speeds -> {write_val}")

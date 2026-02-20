@@ -911,18 +911,36 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void CpuFanSlider_ValueChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
-        if (e.Property == Slider.ValueProperty)
+        if (e.Property == Slider.ValueProperty && _cpuFanSlider != null)
         {
-            _cpuFanSpeed = Convert.ToInt32(e.NewValue);
+            int val = Convert.ToInt32(e.NewValue);
+            
+            // 0 -> Auto. Anything above 0 should be at least 5.
+            if (val > 0 && val < 5)
+            {
+                _cpuFanSlider.Value = 5;
+                return;
+            }
+
+            _cpuFanSpeed = val;
             if (_cpuFanTextBlock != null) _cpuFanTextBlock.Text = _cpuFanSpeed == 0 ? "Auto" : $"{_cpuFanSpeed}%";
         }
     }
 
     private void GpuFanSlider_ValueChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
-        if (e.Property == Slider.ValueProperty)
+        if (e.Property == Slider.ValueProperty && _gpuFanSlider != null)
         {
-            _gpuFanSpeed = Convert.ToInt32(e.NewValue);
+            int val = Convert.ToInt32(e.NewValue);
+            
+            // 0 -> Auto. Anything above 0 should be at least 5.
+            if (val > 0 && val < 5)
+            {
+                _gpuFanSlider.Value = 5;
+                return;
+            }
+
+            _gpuFanSpeed = val;
             if (_gpuFanTextBlock != null) _gpuFanTextBlock.Text = _gpuFanSpeed == 0 ? "Auto" : $"{_gpuFanSpeed}%";
         }
     }

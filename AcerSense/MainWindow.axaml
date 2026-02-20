@@ -185,14 +185,18 @@
                                               Margin="0 5">
                                             <TextBlock Grid.Row="0" Grid.Column="0" Text="CPU Fan:"
                                                        VerticalAlignment="Center" Width="80" />
-                                            <Slider x:Name="CpuFanSlider" Grid.Row="0" Grid.Column="1" Value="50" Minimum="20" Maximum="100" />
+                                            <Slider x:Name="CpuFanSlider" Grid.Row="0" Grid.Column="1" Value="50" Minimum="0" Maximum="100" 
+                                                    TickFrequency="5" IsSnapToTickEnabled="True"
+                                                    PropertyChanged="CpuFanSlider_ValueChanged" />
                                             <TextBlock x:Name="CpuFanTextBlock" Grid.Row="0" Grid.Column="2"
                                                        Text="50%"
                                                        Width="50" TextAlignment="Right" />
 
                                             <TextBlock Grid.Row="1" Grid.Column="0" Text="GPU Fan:"
                                                        VerticalAlignment="Center" Width="80" Margin="0 15 0 0" />
-                                            <Slider x:Name="GpuFanSlider" Grid.Row="1" Grid.Column="1" Value="70" Minimum="20" Maximum="100"
+                                            <Slider x:Name="GpuFanSlider" Grid.Row="1" Grid.Column="1" Value="70" Minimum="0" Maximum="100"
+                                                    TickFrequency="5" IsSnapToTickEnabled="True"
+                                                    PropertyChanged="GpuFanSlider_ValueChanged"
                                                     Margin="0 15 0 0" />
                                             <TextBlock x:Name="GpuFanTextBlock" Grid.Row="1" Grid.Column="2"
                                                        Text="70%"
