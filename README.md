@@ -62,7 +62,9 @@ Many Acer Linux users find that standard drivers or tools don't fully support th
 
 ### 1. Hyprland Integration Switch
 Located in the **Misc** (or System Settings) tab, this toggle provides a deep integration with the Hyprland compositor:
-- **How it works:** When enabled, the daemon injects a `source = ~/.config/hypr/acersense.conf` line into your `hyprland.conf`. 
+- **How it works:**  
+  - If your setup is legacy (`hyprland.conf`), the daemon injects `source = ~/.config/hypr/acersense.conf`.  
+  - If your setup is Lua (`hyprland.lua`, Hyprland 0.55+), the daemon injects `require("custom.acersense")` and generates `~/.config/hypr/custom/acersense.lua` from your mode files.
 - **Dynamic Visuals:** It automatically manages window opacity and effect profiles based on your power state.
 - **Customization:**
   - *Active/Inactive Opacity:* Use the sliders in the GUI to set your preferred transparency for focused and background windows.

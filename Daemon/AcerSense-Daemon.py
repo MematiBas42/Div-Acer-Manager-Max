@@ -17,6 +17,7 @@ import configparser
 import traceback
 import glob
 import pwd
+import re
 from pathlib import Path
 from enum import Enum
 from PowerSourceDetection import PowerSourceDetector 
@@ -1016,6 +1017,409 @@ class AcerSenseManager:
         # Standard fallback is reliable enough for this context.
         return os.path.join(user_home, ".config")
 
+    def _resolve_hyprland_entrypoint(self, user_home: str) -> Tuple[str, str]:
+        """Return active Hyprland config path and parser mode ('lua' or 'hyprlang')."""
+        config_dir = os.path.join(self._get_user_config_dir(user_home), "hypr")
+        lua_path = os.path.join(config_dir, "hyprland.lua")
+        conf_path = os.path.join(config_dir, "hyprland.conf")
+
+        # Hyprland prioritizes hyprland.lua when present.
+        if os.path.exists(lua_path):
+            return lua_path, "lua"
+        if os.path.exists(conf_path):
+            return conf_path, "hyprlang"
+        return lua_path, "lua"
+
+    def _get_hyprland_valid_keys(self) -> Set[str]:
+        """Load valid config key paths from Hyprland lua stubs (best-effort)."""
+        keys: Set[str] = set()
+        stubs_path = "/usr/share/hypr/stubs/hl.meta.lua"
+
+        try:
+            with open(stubs_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    # Example: ---@field ['decoration.blur.enabled'] boolean
+                    m = re.search(r"\['([^']+)'\]", line)
+                    if m:
+                        keys.add(m.group(1))
+        except Exception as e:
+            log.debug(f"Could not parse Hyprland stubs at {stubs_path}: {e}")
+
+        # Fallback minimal set to avoid hard failure if stubs are missing.
+        if not keys:
+            keys.update({
+                "decoration.rounding",
+                "decoration.rounding_power",
+                "decoration.blur.enabled",
+                "decoration.blur.size",
+                "decoration.blur.passes",
+                "decoration.blur.new_optimizations",
+                "decoration.blur.xray",
+                "decoration.blur.ignore_opacity",
+                "decoration.blur.vibrancy",
+                "decoration.blur.contrast",
+                "decoration.blur.brightness",
+                "decoration.blur.popups",
+                "decoration.shadow.enabled",
+                "decoration.shadow.range",
+                "decoration.shadow.offset",
+                "decoration.shadow.render_power",
+                "decoration.shadow.color",
+                "misc.vrr",
+                "debug.vfr",
+                "animations.enabled",
+            })
+
+        return keys
+
+    def _coerce_hypr_value(self, value: str, key: str = ""):
+        """Parse a hyprlang value into a python scalar/list when safe."""
+        raw = value.strip()
+        lower = raw.lower()
+
+        if lower in ("true", "yes", "on"):
+            return True
+        if lower in ("false", "no", "off"):
+            return False
+
+        if key == "offset":
+            parts = raw.split()
+            if len(parts) == 2:
+                try:
+                    return [float(parts[0]), float(parts[1])]
+                except ValueError:
+                    pass
+
+        if re.fullmatch(r"-?\d+", raw):
+            try:
+                return int(raw)
+            except ValueError:
+                pass
+
+        if re.fullmatch(r"-?\d+\.\d+", raw):
+            try:
+                return float(raw)
+            except ValueError:
+                pass
+
+        return raw
+
+    def _parse_animation_entry(self, value: str):
+        """
+        Parse hyprlang animation entry:
+        animation = windows, 1, 4, default, slide
+        -> hl.animation({ leaf='windows', enabled=true, speed=4, bezier='default', style='slide' })
+        """
+        parts = [p.strip() for p in value.split(",")]
+        if len(parts) < 4:
+            return None
+
+        leaf = parts[0]
+        enabled_raw = parts[1].lower()
+        enabled = enabled_raw in ("1", "true", "yes", "on")
+
+        try:
+            speed = float(parts[2])
+            if speed.is_integer():
+                speed = int(speed)
+        except ValueError:
+            speed = parts[2]
+
+        bezier = parts[3]
+        style = ", ".join(parts[4:]).strip() if len(parts) > 4 else None
+
+        entry = {
+            "leaf": leaf,
+            "enabled": enabled,
+            "speed": speed,
+            "bezier": bezier,
+        }
+        if style:
+            entry["style"] = style
+        return entry
+
+    def _parse_hyprlang_mode_file(self, path: str) -> Tuple[Dict, List[Dict]]:
+        """Parse a simple hyprlang mode file into config dict + animation entries."""
+        parsed: Dict = {}
+        animations: List[Dict] = []
+
+        if not os.path.exists(path):
+            return parsed, animations
+
+        stack: List[Dict] = [parsed]
+        section_stack: List[str] = []
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for raw_line in f:
+                    # Strip trailing inline comments while keeping values like rgba(...)
+                    line = raw_line.split("#", 1)[0].strip()
+                    if not line:
+                        continue
+
+                    if line.endswith("{"):
+                        section = line[:-1].strip()
+                        if not section:
+                            continue
+                        parent = stack[-1]
+                        child = parent.get(section)
+                        if not isinstance(child, dict):
+                            child = {}
+                            parent[section] = child
+                        stack.append(child)
+                        section_stack.append(section)
+                        continue
+
+                    if line == "}":
+                        if len(stack) > 1:
+                            stack.pop()
+                            section_stack.pop()
+                        continue
+
+                    if "=" not in line:
+                        continue
+
+                    key, value = [part.strip() for part in line.split("=", 1)]
+                    current_section = section_stack[-1] if section_stack else ""
+
+                    if current_section == "animations" and key == "animation":
+                        anim = self._parse_animation_entry(value)
+                        if anim:
+                            animations.append(anim)
+                        continue
+
+                    stack[-1][key] = self._coerce_hypr_value(value, key)
+
+        except Exception as e:
+            log.error(f"Failed to parse {path}: {e}")
+
+        return parsed, animations
+
+    def _filter_config_to_valid_keys(self, section: str, data: Dict, valid_keys: Set[str]) -> Dict:
+        """Recursively keep only keys known by current Hyprland lua config API."""
+        filtered: Dict = {}
+
+        for key, value in data.items():
+            full_key = f"{section}.{key}" if section else key
+
+            if isinstance(value, dict):
+                child = self._filter_config_to_valid_keys(full_key, value, valid_keys)
+                if child:
+                    filtered[key] = child
+                continue
+
+            if full_key in valid_keys:
+                filtered[key] = value
+            else:
+                log.debug(f"Skipping unsupported Hyprland key for lua: {full_key}")
+
+        return filtered
+
+    def _lua_escape(self, value: str) -> str:
+        return value.replace("\\", "\\\\").replace('"', '\\"')
+
+    def _to_lua(self, value, indent: int = 0) -> str:
+        """Serialize python value into lua literal."""
+        pad = " " * indent
+
+        if isinstance(value, dict):
+            if not value:
+                return "{}"
+
+            lines = ["{"]
+            for k, v in value.items():
+                if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k):
+                    key_repr = k
+                else:
+                    key_repr = f'["{self._lua_escape(str(k))}"]'
+                lines.append(f'{" " * (indent + 4)}{key_repr} = {self._to_lua(v, indent + 4)},')
+            lines.append(f"{pad}}}")
+            return "\n".join(lines)
+
+        if isinstance(value, list):
+            if not value:
+                return "{}"
+            inner = ", ".join(self._to_lua(item, indent + 4) for item in value)
+            return f"{{ {inner} }}"
+
+        if isinstance(value, bool):
+            return "true" if value else "false"
+
+        if isinstance(value, int):
+            return str(value)
+
+        if isinstance(value, float):
+            out = f"{value:.6f}".rstrip("0").rstrip(".")
+            if "." not in out:
+                out += ".0"
+            return out
+
+        if value is None:
+            return "nil"
+
+        return f'"{self._lua_escape(str(value))}"'
+
+    def _build_acersense_lua_content(self, mode_conf_path: str, active: float, inactive: float) -> str:
+        """
+        Generate `custom/acersense.lua` from the selected mode conf + opacity values.
+        Keeps user edits from acersense_bat.conf / acersense_charge.conf where valid in lua mode.
+        """
+        raw_cfg, anim_entries = self._parse_hyprlang_mode_file(mode_conf_path)
+
+        # Map legacy misc.vfr to debug.vfr for Hyprland 0.55+ lua parser.
+        misc = raw_cfg.get("misc")
+        if isinstance(misc, dict) and "vfr" in misc:
+            debug = raw_cfg.get("debug")
+            if not isinstance(debug, dict):
+                debug = {}
+                raw_cfg["debug"] = debug
+            if "vfr" not in debug:
+                debug["vfr"] = misc["vfr"]
+            del misc["vfr"]
+
+        valid_keys = self._get_hyprland_valid_keys()
+        filtered_cfg: Dict = self._filter_config_to_valid_keys("", raw_cfg, valid_keys)
+
+        lines: List[str] = []
+        lines.append("-- AUTO-GENERATED by AcerSense. DO NOT EDIT THIS FILE MANUALLY.")
+        lines.append(f"-- Source mode file: {mode_conf_path}")
+        lines.append("")
+
+        if filtered_cfg:
+            lines.append("hl.config(" + self._to_lua(filtered_cfg, 0) + ")")
+            lines.append("")
+
+        for anim in anim_entries:
+            lines.append("hl.animation(" + self._to_lua(anim, 0) + ")")
+        if anim_entries:
+            lines.append("")
+
+        # Global opacity override matching legacy behavior (active/inactive)
+        opacity_value = f"{active} override {inactive} override"
+        rule = {
+            "name": "acersense-global-opacity",
+            "match": {"class": ".*"},
+            "opacity": opacity_value,
+        }
+        lines.append("hl.window_rule(" + self._to_lua(rule, 0) + ")")
+        lines.append("")
+
+        return "\n".join(lines)
+
+    def _ensure_hyprland_config_source_impl(self):
+        """Ensure AcerSense visuals are sourced from active Hyprland entrypoint."""
+        target_user, _, _ = self._get_hyprland_info()
+        if not target_user:
+            return
+
+        try:
+            user_info = pwd.getpwnam(target_user)
+            user_home = user_info.pw_dir
+            uid = user_info.pw_uid
+            gid = user_info.pw_gid
+
+            hypr_config_path, mode = self._resolve_hyprland_entrypoint(user_home)
+            if not os.path.exists(hypr_config_path):
+                log.warning(f"Main Hyprland config not found at {hypr_config_path}")
+                return
+
+            with open(hypr_config_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            if mode == "lua":
+                marker = "-- Added by AcerSense for Opacity/Blur control (Lua)"
+                require_line = 'require("custom.acersense")'
+                if require_line not in content:
+                    block = (
+                        f"\n{marker}\n"
+                        'if is_file_exists(HOME .. "/.config/hypr/custom/acersense.lua") then\n'
+                        f"    {require_line}\n"
+                        "end\n"
+                    )
+                    with open(hypr_config_path, "a", encoding="utf-8") as f:
+                        if content and not content.endswith("\n"):
+                            f.write("\n")
+                        f.write(block)
+                    os.chown(hypr_config_path, uid, gid)
+                    log.info("Injected AcerSense require block into hyprland.lua")
+            else:
+                source_line = "source = ~/.config/hypr/acersense.conf\n"
+                if "acersense.conf" not in content:
+                    with open(hypr_config_path, "a", encoding="utf-8") as f:
+                        if content and not content.endswith("\n"):
+                            f.write("\n")
+                        f.write("\n# Added by AcerSense for Opacity/Blur control\n")
+                        f.write(source_line)
+                    os.chown(hypr_config_path, uid, gid)
+                    log.info("Injected source line into hyprland.conf")
+
+        except Exception as e:
+            log.error(f"Failed to ensure Hyprland config source: {e}")
+
+    def _remove_hyprland_config_source_impl(self):
+        """Remove AcerSense include hooks from both lua and hyprlang entrypoints."""
+        target_user, _, _ = self._get_hyprland_info()
+        if not target_user:
+            log.warning("Cannot remove Hyprland config source: No active user found.")
+            return
+
+        try:
+            user_info = pwd.getpwnam(target_user)
+            user_home = user_info.pw_dir
+            uid = user_info.pw_uid
+            gid = user_info.pw_gid
+            config_dir = os.path.join(self._get_user_config_dir(user_home), "hypr")
+
+            # Clean hyprland.conf (legacy include)
+            conf_path = os.path.join(config_dir, "hyprland.conf")
+            if os.path.exists(conf_path):
+                subprocess.run(["sed", "-i", "/source.*acersense.conf/d", conf_path], check=False)
+                subprocess.run(["sed", "-i", "/Added by AcerSense/d", conf_path], check=False)
+                try:
+                    os.chown(conf_path, uid, gid)
+                except OSError:
+                    pass
+
+            # Clean hyprland.lua (lua require block)
+            lua_path = os.path.join(config_dir, "hyprland.lua")
+            if os.path.exists(lua_path):
+                with open(lua_path, "r", encoding="utf-8") as f:
+                    lua_content = f.read()
+
+                cleaned = re.sub(
+                    r'\n?-- Added by AcerSense for Opacity/Blur control \(Lua\)\n'
+                    r'if is_file_exists\(HOME \.\. "/\.config/hypr/custom/acersense\.lua"\) then\n'
+                    r'\s*require\("custom\.acersense"\)\n'
+                    r'end\n?',
+                    "\n",
+                    lua_content,
+                    flags=re.MULTILINE,
+                )
+                # Safety cleanup if user modified block manually.
+                cleaned = re.sub(r'^\s*require\("custom\.acersense"\)\s*$\n?', "", cleaned, flags=re.MULTILINE)
+
+                if cleaned != lua_content:
+                    with open(lua_path, "w", encoding="utf-8") as f:
+                        f.write(cleaned)
+                    try:
+                        os.chown(lua_path, uid, gid)
+                    except OSError:
+                        pass
+
+            # Reload Hyprland if running
+            signature = self._get_hyprland_info()[1]
+            if signature:
+                subprocess.run([
+                    "sudo", "-u", target_user, "env",
+                    f"XDG_RUNTIME_DIR=/run/user/{uid}",
+                    f"HYPRLAND_INSTANCE_SIGNATURE={signature}",
+                    "hyprctl", "reload"
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+                log.info("AcerSense include hooks removed and Hyprland reloaded.")
+
+        except Exception as e:
+            log.error(f"Failed to remove Hyprland config source: {e}")
+
     def _ensure_aux_config_files(self, user_home, uid, gid):
         """Create auxiliary config files (bat/charge) if they don't exist"""
         config_dir = os.path.join(self._get_user_config_dir(user_home), "hypr")
@@ -1063,8 +1467,8 @@ class AcerSenseManager:
                 log.info("Created default acersense_charge.conf")
 
     def _update_hyprland_visuals(self, profile: str):
-        """Update the main acersense.conf to source the correct aux file and set opacity"""
-        
+        """Update AcerSense visuals for active Hyprland parser mode (lua/hyprlang)."""
+
         target_user, signature, _ = self._get_hyprland_info()
         if not target_user:
             return
@@ -1078,24 +1482,22 @@ class AcerSenseManager:
             
             # Ensure aux files exist first (safe to call repeatedly)
             self._ensure_aux_config_files(user_home, uid, gid)
+
+            # Self-heal include hook: if user's hyprland.lua was overwritten
+            # (e.g. dotfiles update), ensure AcerSense include exists again.
+            if getattr(self, "hyprland_integration", False):
+                self._ensure_hyprland_config_source_impl()
             
-            # Target config file (The Manager)
+            # Target manager files
             config_dir = os.path.join(self._get_user_config_dir(user_home), "hypr")
-            config_path = os.path.join(config_dir, "acersense.conf")
-            
-            # Ensure directory exists
+            legacy_manager_path = os.path.join(config_dir, "acersense.conf")
+            lua_manager_path = os.path.join(config_dir, "custom", "acersense.lua")
+
             if not os.path.exists(config_dir):
                 return
-                
-            # Content generation
-            content = []
-            content.append("# AUTO-GENERATED by AcerSense. DO NOT EDIT THIS FILE MANUALLY.\n")
-            content.append("# This file switches between _bat.conf and _charge.conf based on power state.\n")
-            content.append("# To customize visuals, edit 'acersense_bat.conf' or 'acersense_charge.conf'.\n\n")
-            
-            # Determine mode based on profile
+
+            # Determine mode and opacity based on profile
             is_high_perf = profile in ["balanced", "balanced-performance", "performance", "turbo"]
-            
             if is_high_perf:
                 active = self.ac_active_opacity
                 inactive = self.ac_inactive_opacity
@@ -1105,28 +1507,37 @@ class AcerSenseManager:
                 inactive = self.bat_inactive_opacity
                 source_file = "acersense_bat.conf"
 
-            # 1. Source the appropriate environment file
-            # We use absolute path or ~ relative if we are sure, but relative to config is safer for portability if user moves home (rare)
-            # Standard Hyprland: source = ~/.config/hypr/file.conf
-            content.append(f"source = ~/.config/hypr/{source_file}\n\n")
-            
-            # 2. Write Dynamic Opacity Rules (Managed by App)
-            content.append(f"# Dynamic Opacity Rules (Managed by App)\n")
-            content.append(f"windowrule = match:class .*, opacity {active} override {inactive} override\n")
-            
+            source_path = os.path.join(config_dir, source_file)
             log.info(f"Updating Hyprland Config -> Sourcing: {source_file}, Opacity: {active}/{inactive}")
 
-            # Secure Write
-            if self._write_user_file_atomically(config_path, content, uid, gid):
+            # Always keep legacy manager file up-to-date for non-lua fallback.
+            legacy_content: List[str] = []
+            legacy_content.append("# AUTO-GENERATED by AcerSense. DO NOT EDIT THIS FILE MANUALLY.\n")
+            legacy_content.append("# This file switches between _bat.conf and _charge.conf based on power state.\n")
+            legacy_content.append("# To customize visuals, edit 'acersense_bat.conf' or 'acersense_charge.conf'.\n\n")
+            legacy_content.append(f"source = ~/.config/hypr/{source_file}\n\n")
+            legacy_content.append("# Dynamic Opacity Rules (Managed by App)\n")
+            legacy_content.append(f"windowrule = match:class .*, opacity {active} override {inactive} override\n")
+            self._write_user_file_atomically(legacy_manager_path, legacy_content, uid, gid)
+
+            # If active entrypoint is lua, generate custom/acersense.lua from the selected mode file.
+            _, parser_mode = self._resolve_hyprland_entrypoint(user_home)
+            if parser_mode == "lua":
+                os.makedirs(os.path.dirname(lua_manager_path), exist_ok=True)
+                lua_content = self._build_acersense_lua_content(source_path, active, inactive)
+                self._write_user_file_atomically(lua_manager_path, lua_content, uid, gid)
+
+            # Reload Hyprland after writing manager files.
+            if signature:
                 # Reload Hyprland
                 cmd = [
-                    "sudo", "-u", target_user, 
-                    "env", 
-                    f"XDG_RUNTIME_DIR=/run/user/{uid}", 
-                    f"HYPRLAND_INSTANCE_SIGNATURE={signature}", 
+                    "sudo", "-u", target_user,
+                    "env",
+                    f"XDG_RUNTIME_DIR=/run/user/{uid}",
+                    f"HYPRLAND_INSTANCE_SIGNATURE={signature}",
                     "hyprctl", "reload"
                 ]
-                
+
                 subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 log.debug("Triggered Hyprland reload")
 
@@ -1134,91 +1545,12 @@ class AcerSenseManager:
             log.error(f"Failed to update Hyprland visuals: {e}")
 
     def _ensure_hyprland_config_source(self):
-        """Ensure that acersense.conf is sourced in the main Hyprland config"""
-        target_user, _, _ = self._get_hyprland_info()
-        if not target_user:
-            return
-
-        try:
-            user_info = pwd.getpwnam(target_user)
-            user_home = user_info.pw_dir
-            uid = user_info.pw_uid
-            gid = user_info.pw_gid
-            
-            config_dir = os.path.join(self._get_user_config_dir(user_home), "hypr")
-            hypr_config_path = os.path.join(config_dir, "hyprland.conf")
-            source_line = "source = ~/.config/hypr/acersense.conf\n"
-            
-            if not os.path.exists(hypr_config_path):
-                return
-
-            # Note: We don't use atomic write here because we are APPENDING to a user-owned file 
-            # that might be symlinked intentionally by the user (dotfiles managers like stow).
-            # However, we should still check ownership to ensure we aren't writing to root-owned file in user home.
-            
-            if os.path.islink(hypr_config_path):
-                # If it's a symlink, resolving it to real path is usually safer, 
-                # but for now we just append if the target is writable.
-                pass
-
-            with open(hypr_config_path, 'r') as f:
-                content = f.read()
-                
-            if "acersense.conf" not in content:
-                log.info("Injecting source line into hyprland.conf")
-                with open(hypr_config_path, 'a') as f:
-                    if content and not content.endswith('\n'):
-                        f.write('\n')
-                    f.write(f"\n# Added by AcerSense for Opacity/Blur control\n{source_line}")
-                # We do not chown here because we appended, file ownership shouldn't change.
-                
-        except Exception as e:
-            log.error(f"Failed to ensure Hyprland config source: {e}")
+        """Ensure AcerSense include exists in active Hyprland entrypoint."""
+        self._ensure_hyprland_config_source_impl()
 
     def _remove_hyprland_config_source(self):
-        """Remove the source line from Hyprland config using sed (Direct & Reliable)"""
-        target_user, _, _ = self._get_hyprland_info()
-        if not target_user:
-            log.warning("Cannot remove Hyprland config source: No active user found.")
-            return
-
-        try:
-            user_info = pwd.getpwnam(target_user)
-            user_home = user_info.pw_dir
-            uid = user_info.pw_uid
-            gid = user_info.pw_gid
-            
-            config_dir = os.path.join(self._get_user_config_dir(user_home), "hypr")
-            hypr_config_path = os.path.join(config_dir, "hyprland.conf")
-            
-            if not os.path.exists(hypr_config_path):
-                log.warning(f"Hyprland config not found at {hypr_config_path}")
-                return
-
-            log.info("Removing source line and comments from hyprland.conf using sed...")
-
-            # 1. Delete lines containing "source" AND "acersense.conf"
-            # Using sed -i which edits in place
-            subprocess.run(["sed", "-i", "/source.*acersense.conf/d", hypr_config_path], check=True)
-            
-            # 2. Delete lines containing "Added by AcerSense"
-            subprocess.run(["sed", "-i", "/Added by AcerSense/d", hypr_config_path], check=True)
-            
-            # 3. Ensure ownership is correct (sed might change it to root if not careful, though usually preserves)
-            os.chown(hypr_config_path, uid, gid)
-            
-            # 4. Reload Hyprland
-            signature = self._get_hyprland_info()[1]
-            if signature:
-                subprocess.run(["sudo", "-u", target_user, "env", 
-                              f"XDG_RUNTIME_DIR=/run/user/{uid}", 
-                              f"HYPRLAND_INSTANCE_SIGNATURE={signature}", 
-                              "hyprctl", "reload"], 
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                log.info("Hyprland config cleaned and reloaded.")
-
-        except Exception as e:
-            log.error(f"Failed to remove Hyprland config source: {e}")
+        """Remove AcerSense include from Hyprland config entrypoint(s)."""
+        self._remove_hyprland_config_source_impl()
 
     def set_hyprland_integration(self, enabled: bool) -> bool:
         """Set Hyprland integration status"""
@@ -1524,44 +1856,8 @@ class AcerSenseManager:
         return getattr(self, 'hyprland_integration', False)
 
     def _ensure_hyprland_config_source(self):
-        """Ensure that the acersense.conf is sourced in the main Hyprland config"""
-        target_user, _, _ = self._get_hyprland_info()
-        if not target_user:
-            return
-
-        try:
-            # Get User Home
-            user_info = pwd.getpwnam(target_user)
-            user_home = user_info.pw_dir
-            uid = user_info.pw_uid
-            gid = user_info.pw_gid
-            
-            # Paths
-            hypr_config_path = os.path.join(user_home, ".config/hypr/hyprland.conf")
-            source_line = "source = ~/.config/hypr/acersense.conf\n"
-            
-            if not os.path.exists(hypr_config_path):
-                log.warning(f"Main Hyprland config not found at {hypr_config_path}")
-                return
-
-            # Check if source line exists
-            with open(hypr_config_path, 'r') as f:
-                content = f.read()
-                
-            if "acersense.conf" not in content:
-                log.info("Injecting source line into hyprland.conf")
-                
-                # Append to file
-                with open(hypr_config_path, 'a') as f:
-                    if not content.endswith('\n'):
-                        f.write('\n')
-                    f.write(f"\n# Added by AcerSense for Opacity/Blur control\n{source_line}")
-                
-                # Ensure ownership is correct
-                os.chown(hypr_config_path, uid, gid)
-                
-        except Exception as e:
-            log.error(f"Failed to ensure Hyprland config source: {e}")
+        """Ensure AcerSense include exists in active Hyprland entrypoint."""
+        self._ensure_hyprland_config_source_impl()
 
     def set_hyprland_integration(self, enabled: bool) -> bool:
         """Set Hyprland integration status"""
@@ -1772,9 +2068,9 @@ class DaemonServer:
         # log.debug(f"New connection: {client_peer}")
         self.clients.add((reader, writer))
 
-        # A new UI client connected. Sync full state to ensure visuals and profiles 
-        # are correctly applied for the current user session.
-        self.manager.sync_full_state()
+        # Removing automatic sync_full_state on connection to prevent infinite 
+        # hyprctl reload loops when simple event listeners connect to the socket.
+        # self.manager.sync_full_state()
 
         try:
             while self.running:
@@ -1856,8 +2152,8 @@ class DaemonServer:
         """Process a command from the client"""
         
         # Filter noise from repetitive polling commands
-        NOISY_COMMANDS = ["get_thermal_profile", "get_fan_speed", "get_all_settings", "get_supported_features"]
-        
+        NOISY_COMMANDS = ["get_thermal_profile", "get_fan_speed", "get_fan_rpms", "get_all_settings", "get_supported_features"]
+
         if not self.manager.disable_logs:
             if command in NOISY_COMMANDS:
                 log.debug(f"Processing command: {command} with params: {params}")
@@ -1872,6 +2168,20 @@ class DaemonServer:
                     "data": settings
                 }
 
+            elif command == "get_fan_rpms":
+                if "fan_speed" not in self.manager.available_features:
+                    return {
+                        "success": False,
+                        "error": "Fan speed is not supported on this device"
+                    }
+                cpu_rpms, gpu_rpms = self.manager.get_fan_rpms()
+                return {
+                    "success": True,
+                    "data": {
+                        "cpu": cpu_rpms,
+                        "gpu": gpu_rpms
+                    }
+                }
             elif command == "get_thermal_profile":
                 # Check if feature is available
                 if "thermal_profile" not in self.manager.available_features:
