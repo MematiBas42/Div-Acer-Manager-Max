@@ -209,11 +209,11 @@ public partial class Dashboard : UserControl, INotifyPropertyChanged
                     
                     if (_client != null && _client.IsConnected)
                     {
-                        var s = await _client.GetAllSettingsAsync();
+                        var fanRpms = await _client.GetFanRpmsAsync();
                         // Use FanRpms for real sensor readings on the dashboard
-                        if (s != null && s.FanRpms != null) {
-                            if (s.FanRpms.Cpu != null && int.TryParse(s.FanRpms.Cpu, out var cs)) data.CpuFanSpeedRPM = cs;
-                            if (s.FanRpms.Gpu != null && int.TryParse(s.FanRpms.Gpu, out var gs)) data.GpuFanSpeedRPM = gs;
+                        if (fanRpms != null) {
+                            if (fanRpms.Cpu != null && int.TryParse(fanRpms.Cpu, out var cs)) data.CpuFanSpeedRPM = cs;
+                            if (fanRpms.Gpu != null && int.TryParse(fanRpms.Gpu, out var gs)) data.GpuFanSpeedRPM = gs;
                         }
                     }
                 } catch (Exception taskEx) {

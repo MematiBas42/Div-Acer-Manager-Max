@@ -43,7 +43,7 @@ def main():
 
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
                 s.connect(SOCKET_PATH)
-                s.sendall(b'{"command": "get_all_settings"}\n')
+                s.sendall(b'{"command": "get_thermal_profile"}\n')
                 
                 f = s.makefile()
                 last_profile = "unknown"
@@ -52,8 +52,8 @@ def main():
                 for line in f:
                     try:
                         msg = json.loads(line.strip())
-                        if "data" in msg and "thermal_profile" in msg["data"]:
-                            last_profile = msg["data"]["thermal_profile"]["current"]
+                        if "data" in msg and "current" in msg["data"]:
+                            last_profile = msg["data"]["current"]
                             send_update(last_profile, ac_state)
                         elif msg.get("type") == "event":
                             evt = msg.get("event")

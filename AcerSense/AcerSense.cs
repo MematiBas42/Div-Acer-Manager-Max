@@ -254,6 +254,17 @@ public class AcerSense : IDisposable
         throw new Exception("Failed to get settings");
     }
 
+    public async Task<FanSpeedSettings?> GetFanRpmsAsync()
+    {
+        var response = await SendCommandAsync("get_fan_rpms");
+        if (response.RootElement.TryGetProperty("success", out var success) && success.GetBoolean())
+        {
+            var data = response.RootElement.GetProperty("data");
+            return JsonSerializer.Deserialize<FanSpeedSettings>(data.GetRawText());
+        }
+        return null;
+    }
+
     public async Task<bool> SetThermalProfileAsync(string profile)
     {
         try {
