@@ -99,6 +99,57 @@ class TestAcerSenseServer(unittest.IsolatedAsyncioTestCase):
         writer.close()
         await writer.wait_closed()
 
+    async def test_get_all_settings(self):
+        reader, writer = await asyncio.open_unix_connection(self.sock_path)
+        req = encode_message({"command": "get_all_settings"})
+        writer.write(req)
+        await writer.drain()
+
+        line = await reader.readline()
+        ok, res, _ = decode_message(line.decode())
+        self.assertTrue(ok)
+        assert res is not None
+        self.assertTrue(res.get("success"))
+        data = res.get("data", {})
+        self.assertEqual(data.get("version"), "1.0.0")
+        self.assertEqual(data.get("driver_version"), "25.701")
+        self.assertIn("thermal_profile", data)
+
+        writer.close()
+        await writer.wait_closed()
+
+    async def test_hyprland_settings_commands(self):
+        reader, writer = await asyncio.open_unix_connection(self.sock_path)
+
+        # set_hyprland_integration
+        req = encode_message({"command": "set_hyprland_integration", "parameters": {"enabled": True}})
+        writer.write(req)
+        await writer.drain()
+        line = await reader.readline()
+        ok, res, _ = decode_message(line.decode())
+        self.assertTrue(ok)
+        self.assertTrue(res.get("success"))
+
+        # set_hyprland_opacity_settings
+        req = encode_message({
+            "command": "set_hyprland_opacity_settings",
+            "parameters": {
+                "ac_active": 0.98,
+                "ac_inactive": 0.92,
+                "bat_active": 1.0,
+                "bat_inactive": 1.0
+            }
+        })
+        writer.write(req)
+        await writer.drain()
+        line = await reader.readline()
+        ok, res, _ = decode_message(line.decode())
+        self.assertTrue(ok)
+        self.assertTrue(res.get("success"))
+
+        writer.close()
+        await writer.wait_closed()
+
     async def test_malformed_json(self):
         reader, writer = await asyncio.open_unix_connection(self.sock_path)
         writer.write(b"NOT A VALID JSON\n")

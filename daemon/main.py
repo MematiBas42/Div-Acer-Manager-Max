@@ -12,6 +12,7 @@ from daemon.core.hardware_manager import HardwareManager
 from daemon.core.power_optimizer import PowerOptimizer
 from daemon.core.boot_boost import BootBoostManager
 from daemon.core.netlink_monitor import NetlinkPowerMonitor, read_ac_online
+from daemon.services.hyprland_bridge import HyprlandBridge
 from daemon.ipc.server import AcerSenseServer, DEFAULT_SOCKET_PATH, COMPAT_SOCKET_PATH
 
 LOG_PATH = "/var/log/AcerSenseDaemon.log"
@@ -39,12 +40,14 @@ class AcerSenseDaemon:
         self.hardware = HardwareManager()
         self.power = PowerOptimizer()
         self.boot_boost = BootBoostManager(on_finish_callback=self._on_boot_boost_finish)
+        self.hyprland = HyprlandBridge()
         self.server = AcerSenseServer(
             hardware=self.hardware,
             power=self.power,
             boot_boost=self.boot_boost,
             socket_path=socket_path,
             compat_symlink=COMPAT_SOCKET_PATH if socket_path == DEFAULT_SOCKET_PATH else None,
+            hyprland=self.hyprland,
         )
         self.netlink = NetlinkPowerMonitor(callback=self._on_power_state_changed)
         self.loop: Optional[asyncio.AbstractEventLoop] = None
@@ -58,6 +61,8 @@ class AcerSenseDaemon:
         if not self.hardware.is_nos_active:
             self.hardware.set_thermal_profile(target_profile)
             self.power.apply_profile(target_profile)
+            if self.hyprland.enabled:
+                self.hyprland.sync_visuals(target_profile, is_ac)
 
         self.server.broadcast_event("power_state_changed", {"plugged_in": is_ac})
         self.server.broadcast_event("thermal_profile_changed", {"profile": self.hardware.get_thermal_profile()})
@@ -97,6 +102,8 @@ class AcerSenseDaemon:
         initial_profile = self.server.ac_default_profile if is_ac else self.server.bat_default_profile
         self.hardware.set_thermal_profile(initial_profile)
         self.power.apply_profile(initial_profile)
+        if self.hyprland.enabled:
+            self.hyprland.sync_visuals(initial_profile, is_ac)
 
         # Boot boost trigger
         if self.boot_boost.enabled:

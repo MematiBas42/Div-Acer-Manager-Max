@@ -3,10 +3,13 @@
 import os
 import asyncio
 import logging
+import subprocess
+import time
 from typing import Any, Callable, Dict, List, Optional, Set
 from daemon.core.hardware_manager import HardwareManager
 from daemon.core.power_optimizer import PowerOptimizer
 from daemon.core.boot_boost import BootBoostManager
+from daemon.core.netlink_monitor import read_ac_online
 from daemon.core.laptop_type import (
     set_modprobe_parameter,
     remove_modprobe_parameter,
@@ -34,12 +37,14 @@ class AcerSenseServer:
         boot_boost: BootBoostManager,
         socket_path: str = DEFAULT_SOCKET_PATH,
         compat_symlink: Optional[str] = COMPAT_SOCKET_PATH,
+        hyprland: Optional[Any] = None,
     ):
         self.hardware = hardware
         self.power = power
         self.boot_boost = boot_boost
         self.socket_path = socket_path
         self.compat_symlink = compat_symlink
+        self.hyprland = hyprland
 
         self.server: Optional[asyncio.AbstractServer] = None
         self._clients: Set[asyncio.StreamWriter] = set()
@@ -157,6 +162,34 @@ class AcerSenseServer:
             except Exception:
                 pass
 
+    def _restart_daemon_async(self) -> None:
+        """Schedule daemon restart via systemd."""
+        def _restart():
+            time.sleep(0.5)
+            subprocess.run(["systemctl", "restart", "acersense-daemon.service"], check=False)
+
+        import threading
+        threading.Thread(target=_restart, daemon=True).start()
+
+    def _reload_driver_and_restart(self, modprobe_arg: Optional[str] = None) -> None:
+        """Reload linuwu-sense driver and restart daemon in background."""
+        def _worker():
+            try:
+                time.sleep(0.5)
+                subprocess.run(["rmmod", "linuwu-sense"], check=False)
+                time.sleep(1)
+                cmd = ["modprobe", "linuwu-sense"]
+                if modprobe_arg:
+                    cmd.append(modprobe_arg)
+                subprocess.run(cmd, check=False)
+                time.sleep(1)
+                subprocess.run(["systemctl", "restart", "acersense-daemon.service"], check=False)
+            except Exception as e:
+                log.error(f"Failed to reload driver: {e}")
+
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
+
     async def _dispatch_command(self, cmd: str, params: Dict[str, Any]) -> bytes:
         """Dispatch a single JSON-RPC command."""
         try:
@@ -179,25 +212,46 @@ class AcerSenseServer:
 
             if cmd == "get_all_settings":
                 c_fan, g_fan = self.hardware.get_fan_speed()
+                supported_profiles = self.hardware.get_supported_profiles()
+                current_profile = self.hardware.get_thermal_profile()
+                modprobe_p = detect_current_modprobe_param()
+                hypr_enabled = self.hyprland.enabled if self.hyprland else False
+                ac_act_op = getattr(self.hyprland, 'ac_active_opacity', 1.0) if self.hyprland else 1.0
+                ac_inact_op = getattr(self.hyprland, 'ac_inactive_opacity', 1.0) if self.hyprland else 1.0
+                bat_act_op = getattr(self.hyprland, 'bat_active_opacity', 0.95) if self.hyprland else 0.95
+                bat_inact_op = getattr(self.hyprland, 'bat_inactive_opacity', 0.90) if self.hyprland else 0.90
+
                 return make_response(True, {
                     "version": "1.0.0",
                     "driver_version": "25.701",
                     "laptop_type": self.hardware.laptop_type.name,
                     "available_features": sorted(list(self.hardware.available_features)),
                     "has_four_zone_kb": self.hardware.has_four_zone_kb,
-                    "thermal_profile": {"current": self.hardware.get_thermal_profile()},
+                    "thermal_profile": {
+                        "current": current_profile,
+                        "available": supported_profiles
+                    },
                     "fan_speed": {"cpu": c_fan, "gpu": g_fan},
                     "battery_limiter": self.hardware.get_battery_limiter(),
                     "battery_calibration": self.hardware.get_battery_calibration(),
                     "boot_animation_sound": self.hardware.get_boot_animation_sound(),
                     "lcd_override": self.hardware.get_lcd_override(),
                     "usb_charging": self.hardware.get_usb_charging(),
-                    "modprobe_parameter": detect_current_modprobe_param(),
+                    "modprobe_parameter": modprobe_p,
                     "is_nos_active": self.hardware.is_nos_active,
                     "boot_boost_enabled": self.boot_boost.enabled,
+                    "enable_boot_boost": self.boot_boost.enabled,
                     "boot_boost_delay": self.boot_boost.delay_seconds,
                     "ac_default_profile": self.ac_default_profile,
                     "bat_default_profile": self.bat_default_profile,
+                    "default_ac_profile": self.ac_default_profile,
+                    "default_bat_profile": self.bat_default_profile,
+                    "hyprland_integration": hypr_enabled,
+                    "disable_logs": self.disable_logging,
+                    "ac_active_opacity": ac_act_op,
+                    "ac_inactive_opacity": ac_inact_op,
+                    "bat_active_opacity": bat_act_op,
+                    "bat_inactive_opacity": bat_inact_op,
                 })
 
             # Fan control
@@ -223,8 +277,17 @@ class AcerSenseServer:
                 success = self.hardware.set_thermal_profile(prof)
                 if success:
                     self.power.apply_profile(prof)
+                    if self.hyprland and self.hyprland.enabled:
+                        is_ac = read_ac_online()
+                        self.hyprland.sync_visuals(prof, is_ac)
                     self.broadcast_event("thermal_profile_changed", {"profile": prof})
                 return make_response(success, {"profile": prof})
+
+            if cmd == "get_thermal_profile_choices":
+                return make_response(True, {"choices": self.hardware.get_supported_profiles()})
+
+            if cmd == "get_modprobe_parameter":
+                return make_response(True, {"parameter": detect_current_modprobe_param()})
 
             if cmd == "cycle_profile":
                 new_prof = self.hardware.cycle_profile()
@@ -334,6 +397,57 @@ class AcerSenseServer:
 
             if cmd == "remove_modprobe_parameter":
                 return make_response(remove_modprobe_parameter())
+
+            # Hyprland integration commands
+            if cmd == "set_hyprland_integration":
+                enabled = bool(params.get("enabled", False))
+                if self.hyprland:
+                    self.hyprland.enabled = enabled
+                    if enabled:
+                        is_ac = read_ac_online()
+                        self.hyprland.sync_visuals(self.hardware.get_thermal_profile(), is_ac)
+                return make_response(True, {"enabled": enabled})
+
+            if cmd == "set_hyprland_opacity_settings":
+                ac_act = float(params.get("ac_active", 1.0))
+                ac_inact = float(params.get("ac_inactive", 1.0))
+                bat_act = float(params.get("bat_active", 0.95))
+                bat_inact = float(params.get("bat_inactive", 0.90))
+                if self.hyprland:
+                    self.hyprland.configure(
+                        enabled=self.hyprland.enabled,
+                        ac_active=ac_act,
+                        ac_inactive=ac_inact,
+                        bat_active=bat_act,
+                        bat_inactive=bat_inact,
+                    )
+                    is_ac = read_ac_online()
+                    self.hyprland.sync_visuals(self.hardware.get_thermal_profile(), is_ac)
+                return make_response(True)
+
+            # Driver & Service management commands (used by InternalsManager)
+            if cmd == "force_nitro_model":
+                set_modprobe_parameter("force_model=nitro")
+                self._reload_driver_and_restart("nitro_v4")
+                return make_response(True)
+
+            if cmd == "force_predator_model":
+                set_modprobe_parameter("force_model=predator")
+                self._reload_driver_and_restart("predator_v4")
+                return make_response(True)
+
+            if cmd == "force_enable_all":
+                set_modprobe_parameter("enable_all=1")
+                self._reload_driver_and_restart("enable_all")
+                return make_response(True)
+
+            if cmd == "restart_daemon":
+                self._restart_daemon_async()
+                return make_response(True)
+
+            if cmd == "restart_drivers_and_daemon":
+                self._reload_driver_and_restart()
+                return make_response(True)
 
             return make_response(False, error=f"Unknown command: '{cmd}'")
         except Exception as e:

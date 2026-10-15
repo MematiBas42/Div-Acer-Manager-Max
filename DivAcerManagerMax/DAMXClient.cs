@@ -539,6 +539,61 @@ public class DAMXClient : IDisposable
         return response.RootElement.GetProperty("success").GetBoolean();
     }
 
+    public async Task<bool> SetHyprlandIntegrationAsync(bool enabled)
+    {
+        var parameters = new Dictionary<string, object> { { "enabled", enabled } };
+        var response = await SendCommandAsync("set_hyprland_integration", parameters);
+        return response.RootElement.GetProperty("success").GetBoolean();
+    }
+
+    public async Task<bool> SetHyprlandOpacitySettingsAsync(double acActive, double acInactive, double batActive, double batInactive)
+    {
+        var parameters = new Dictionary<string, object>
+        {
+            { "ac_active", acActive },
+            { "ac_inactive", acInactive },
+            { "bat_active", batActive },
+            { "bat_inactive", batInactive }
+        };
+        var response = await SendCommandAsync("set_hyprland_opacity_settings", parameters);
+        return response.RootElement.GetProperty("success").GetBoolean();
+    }
+
+    public async Task<bool> SetLoggingStateAsync(bool disabled)
+    {
+        var parameters = new Dictionary<string, object> { { "disabled", disabled } };
+        var response = await SendCommandAsync("set_logging_state", parameters);
+        return response.RootElement.GetProperty("success").GetBoolean();
+    }
+
+    public async Task<List<string>> GetThermalProfileChoicesAsync()
+    {
+        var response = await SendCommandAsync("get_thermal_profile_choices");
+        if (response.RootElement.GetProperty("success").GetBoolean() &&
+            response.RootElement.GetProperty("data").TryGetProperty("choices", out var choicesEl))
+        {
+            var list = new List<string>();
+            foreach (var item in choicesEl.EnumerateArray())
+            {
+                var s = item.GetString();
+                if (!string.IsNullOrEmpty(s)) list.Add(s);
+            }
+            return list;
+        }
+        return new List<string>();
+    }
+
+    public async Task<string> GetModprobeParameterAsync()
+    {
+        var response = await SendCommandAsync("get_modprobe_parameter");
+        if (response.RootElement.GetProperty("success").GetBoolean() &&
+            response.RootElement.GetProperty("data").TryGetProperty("parameter", out var paramEl))
+        {
+            return paramEl.GetString() ?? "";
+        }
+        return "";
+    }
+
     protected virtual void Dispose(bool disposing)
     {
         if (_disposed) return;
@@ -617,6 +672,36 @@ public class DAMXSettings
 
     [JsonPropertyName("modprobe_parameter")]
     public string ModprobeParameter { get; set; } = "";
+
+    [JsonPropertyName("hyprland_integration")]
+    public bool HyprlandIntegration { get; set; }
+
+    [JsonPropertyName("disable_logs")]
+    public bool DisableLogs { get; set; }
+
+    [JsonPropertyName("default_ac_profile")]
+    public string DefaultAcProfile { get; set; } = "balanced";
+
+    [JsonPropertyName("default_bat_profile")]
+    public string DefaultBatProfile { get; set; } = "low-power";
+
+    [JsonPropertyName("enable_boot_boost")]
+    public bool EnableBootBoost { get; set; } = true;
+
+    [JsonPropertyName("boot_boost_delay")]
+    public int BootBoostDelay { get; set; } = 5;
+
+    [JsonPropertyName("ac_active_opacity")]
+    public double AcActiveOpacity { get; set; } = 0.97;
+
+    [JsonPropertyName("ac_inactive_opacity")]
+    public double AcInactiveOpacity { get; set; } = 0.95;
+
+    [JsonPropertyName("bat_active_opacity")]
+    public double BatActiveOpacity { get; set; } = 1.0;
+
+    [JsonPropertyName("bat_inactive_opacity")]
+    public double BatInactiveOpacity { get; set; } = 1.0;
 }
 
 public class ThermalProfileSettings
