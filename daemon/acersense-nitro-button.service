@@ -1,0 +1,15 @@
+[Unit]
+Description=AcerSense Deterministic Nitro Button Daemon
+After=acersense-daemon.service
+Wants=acersense-daemon.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /opt/acersense/daemon/services/nitro_button.py
+Restart=always
+RestartSec=3
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

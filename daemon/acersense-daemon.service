@@ -1,0 +1,15 @@
+[Unit]
+Description=AcerSense Modern Background Hardware Daemon
+After=network.target linuwu-sense.service
+Wants=linuwu-sense.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /opt/acersense/daemon/main.py
+Restart=always
+RestartSec=3
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
