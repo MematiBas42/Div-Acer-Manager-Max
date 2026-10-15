@@ -1,18 +1,20 @@
 
 DivAcerManagerMax/obj/
+DivAcerManagerMax/bin/
 
-DivAcerManagerMax/bin/Release/net9.0/linux-x64/
-
-DivAcerManagerMax/bin/Debug/net9.0/
+AcerSense/obj/
+AcerSense/bin/
 
 Publish/
-
 publish/
-
 buildPublish/
 
 DAMM-Daemon/build/
-
 DAMM-Daemon/dist/
-
 DAMM-Daemon/__pycache__/
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
