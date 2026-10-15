@@ -148,7 +148,7 @@ public class DAMXClient : IDisposable
             }
     }
 
-    public async Task<JsonDocument> SendCommandAsync(string command, Dictionary<string, object> parameters = null)
+    public async Task<JsonDocument> SendCommandAsync(string command, Dictionary<string, object>? parameters = null)
     {
         var attempt = 0;
 
@@ -172,37 +172,34 @@ public class DAMXClient : IDisposable
                     @params = parameters ?? new Dictionary<string, object>()
                 };
 
-                var requestJson = JsonSerializer.Serialize(request);
+                var requestJson = JsonSerializer.Serialize(request) + "\n";
                 var requestBytes = Encoding.UTF8.GetBytes(requestJson);
 
-                await _socket.SendAsync(requestBytes, SocketFlags.None);
+                if (_socket == null)
+                    throw new IOException("Socket is null");
 
-                var buffer = new byte[4096];
-                var received = await _socket.ReceiveAsync(buffer, SocketFlags.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                await _socket.SendAsync(requestBytes, SocketFlags.None, cts.Token);
 
-                if (received <= 0)
+                using var stream = new NetworkStream(_socket, false);
+                using var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, true);
+
+                while (!cts.IsCancellationRequested)
                 {
-                    ResetConnection();
-                    attempt++;
-                    await Task.Delay(RetryDelayMs);
-                    continue;
-                }
+                    var line = await reader.ReadLineAsync(cts.Token);
+                    if (line == null) break;
+                    if (string.IsNullOrWhiteSpace(line)) continue;
 
-                var responseJson = Encoding.UTF8.GetString(buffer, 0, received);
-                return JsonDocument.Parse(responseJson);
-            }
-            catch (SocketException ex) when (
-                ex.SocketErrorCode == SocketError.ConnectionReset ||
-                ex.SocketErrorCode == SocketError.Shutdown ||
-                ex.SocketErrorCode == SocketError.ConnectionAborted)
-            {
-                ResetConnection();
-                attempt++;
-                await Task.Delay(RetryDelayMs);
-            }
-            catch (JsonException ex)
-            {
-                Console.WriteLine($"Invalid JSON response from daemon: {ex.Message}");
+                    var doc = JsonDocument.Parse(line);
+                    if (doc.RootElement.TryGetProperty("type", out var typeProp) &&
+                        typeProp.GetString() == "event")
+                    {
+                        // Ignore broadcast events and keep reading for command response
+                        continue;
+                    }
+
+                    return doc;
+                }
 
                 ResetConnection();
                 attempt++;
@@ -212,7 +209,10 @@ public class DAMXClient : IDisposable
             {
                 Console.WriteLine($"Error communicating with daemon: {ex.Message}");
                 ResetConnection();
-                throw;
+                attempt++;
+                if (attempt >= MaxRetryAttempts)
+                    throw;
+                await Task.Delay(RetryDelayMs);
             }
             finally
             {
@@ -489,6 +489,53 @@ public class DAMXClient : IDisposable
         };
 
         var response = await SendCommandAsync("set_four_zone_mode", parameters);
+        return response.RootElement.GetProperty("success").GetBoolean();
+    }
+
+    public async Task<bool> ActivateNosAsync()
+    {
+        var response = await SendCommandAsync("activate_nos");
+        return response.RootElement.GetProperty("success").GetBoolean();
+    }
+
+    public async Task<bool> DeactivateNosAsync()
+    {
+        var response = await SendCommandAsync("deactivate_nos");
+        return response.RootElement.GetProperty("success").GetBoolean();
+    }
+
+    public async Task<string?> CycleProfileAsync()
+    {
+        var response = await SendCommandAsync("cycle_profile");
+        if (response.RootElement.GetProperty("success").GetBoolean())
+        {
+            return response.RootElement.GetProperty("data").GetProperty("profile").GetString();
+        }
+        return null;
+    }
+
+    public async Task<bool> SetBootBoostAsync(bool enabled)
+    {
+        var parameters = new Dictionary<string, object> { { "enabled", enabled } };
+        var response = await SendCommandAsync("set_boot_boost", parameters);
+        return response.RootElement.GetProperty("success").GetBoolean();
+    }
+
+    public async Task<bool> SetBootBoostDelayAsync(int seconds)
+    {
+        var parameters = new Dictionary<string, object> { { "delay", seconds } };
+        var response = await SendCommandAsync("set_boot_boost_delay", parameters);
+        return response.RootElement.GetProperty("success").GetBoolean();
+    }
+
+    public async Task<bool> SetDefaultProfilePreferenceAsync(string source, string profile)
+    {
+        var parameters = new Dictionary<string, object>
+        {
+            { "source", source },
+            { "profile", profile }
+        };
+        var response = await SendCommandAsync("set_default_profile_preference", parameters);
         return response.RootElement.GetProperty("success").GetBoolean();
     }
 
