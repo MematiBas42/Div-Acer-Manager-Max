@@ -1,3 +1,5 @@
+global using AcerSenseSettings = DivAcerManagerMax.DAMXSettings;
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -32,7 +34,16 @@ public class DAMXClient : IDisposable
     private HashSet<string> _availableFeatures = new();
 
     private bool _disposed;
-    private Socket _socket;
+    private Socket? _socket;
+    private Socket? _eventSocket;
+    private bool _isListening;
+    private Task? _listeningTask;
+    private CancellationTokenSource? _cancellationTokenSource;
+
+    // Events
+    public event EventHandler<string>? ThermalProfileChanged;
+    public event EventHandler<FanSpeedSettings>? FanSpeedChanged;
+    public event EventHandler<bool>? PowerStateChanged;
 
     public DAMXClient()
     {
@@ -40,6 +51,86 @@ public class DAMXClient : IDisposable
     }
 
     public bool IsConnected { get; private set; }
+
+    public void StartListening()
+    {
+        if (_isListening) return;
+        _isListening = true;
+        _cancellationTokenSource = new CancellationTokenSource();
+        _listeningTask = Task.Run(() => ListenLoopAsync(_cancellationTokenSource.Token));
+    }
+
+    private async Task ListenLoopAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                if (_eventSocket != null)
+                {
+                    try { _eventSocket.Dispose(); } catch { }
+                }
+
+                _eventSocket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.IP);
+                var endpoint = new UnixDomainSocketEndPoint(SocketPath);
+
+                await _eventSocket.ConnectAsync(endpoint, token);
+
+                using var stream = new NetworkStream(_eventSocket, false);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+
+                while (!token.IsCancellationRequested)
+                {
+                    var jsonString = await reader.ReadLineAsync();
+                    if (jsonString == null) break;
+
+                    if (!string.IsNullOrWhiteSpace(jsonString))
+                        ProcessIncomingMessage(jsonString);
+                }
+            }
+            catch (Exception)
+            {
+                // Retry on disconnect
+            }
+
+            if (!token.IsCancellationRequested)
+                await Task.Delay(2000, token);
+        }
+    }
+
+    private void ProcessIncomingMessage(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("type", out var typeProp) &&
+                typeProp.GetString() == "event")
+            {
+                var eventName = doc.RootElement.GetProperty("event").GetString();
+                var data = doc.RootElement.GetProperty("data");
+
+                switch (eventName)
+                {
+                    case "thermal_profile_changed":
+                        var profile = data.GetProperty("profile").GetString();
+                        if (profile != null) ThermalProfileChanged?.Invoke(this, profile);
+                        break;
+                    case "fan_speed_changed":
+                        var fanData = JsonSerializer.Deserialize<FanSpeedSettings>(data.GetRawText());
+                        if (fanData != null) FanSpeedChanged?.Invoke(this, fanData);
+                        break;
+                    case "power_state_changed":
+                        var isAc = data.GetProperty("plugged_in").GetBoolean();
+                        PowerStateChanged?.Invoke(this, isAc);
+                        break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error processing event: {ex.Message}");
+        }
+    }
 
     public void Dispose()
     {
@@ -269,6 +360,17 @@ public class DAMXClient : IDisposable
 
         var response = await SendCommandAsync("set_thermal_profile", parameters);
         return response.RootElement.GetProperty("success").GetBoolean();
+    }
+
+    public async Task<FanSpeedSettings?> GetFanRpmsAsync()
+    {
+        var response = await SendCommandAsync("get_fan_rpms");
+        if (response.RootElement.TryGetProperty("success", out var success) && success.GetBoolean())
+        {
+            var data = response.RootElement.GetProperty("data");
+            return JsonSerializer.Deserialize<FanSpeedSettings>(data.GetRawText());
+        }
+        return null;
     }
 
     /// <summary>
@@ -600,6 +702,12 @@ public class DAMXClient : IDisposable
 
         if (disposing)
         {
+            _cancellationTokenSource?.Cancel();
+            _cancellationTokenSource?.Dispose();
+            if (_eventSocket != null)
+            {
+                try { _eventSocket.Dispose(); } catch { }
+            }
             Disconnect();
             _socket?.Dispose();
         }
@@ -716,4 +824,8 @@ public class FanSpeedSettings
     [JsonPropertyName("cpu")] public string Cpu { get; set; } = "0";
 
     [JsonPropertyName("gpu")] public string Gpu { get; set; } = "0";
+}
+
+public class AcerSense : DAMXClient
+{
 }

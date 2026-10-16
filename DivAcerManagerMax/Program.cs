@@ -1,13 +1,9 @@
-﻿using Avalonia;
-using System;
-using SkiaSharp;
-using Avalonia.Skia;
+﻿using System;
 using Avalonia;
-using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Skia;
-using SkiaSharp;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Skia;
+using SkiaSharp;
 
 
 namespace DivAcerManagerMax;

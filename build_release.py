@@ -102,6 +102,8 @@ if [ -d "${SCRIPT_DIR}/gui" ]; then
     cp -rf "${SCRIPT_DIR}/gui" "${INSTALL_DIR}/"
     chmod +x "${INSTALL_DIR}/gui/DivAcerManagerMax" 2>/dev/null || true
     ln -sf "${INSTALL_DIR}/gui/DivAcerManagerMax" /usr/local/bin/acersense-gui || true
+    ln -sf "${INSTALL_DIR}/gui/DivAcerManagerMax" /usr/local/bin/damx-gui || true
+    ln -sf "${INSTALL_DIR}/gui/DivAcerManagerMax" /usr/local/bin/damx || true
 fi
 if [ -d "${SCRIPT_DIR}/scripts" ]; then
     cp -rf "${SCRIPT_DIR}/scripts" "${INSTALL_DIR}/"
