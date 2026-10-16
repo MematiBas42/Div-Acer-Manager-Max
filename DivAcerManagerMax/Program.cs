@@ -24,6 +24,7 @@ class Program
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont()
+            .With(new X11PlatformOptions { WmClass = "AcerSense" })
             .LogToTrace();
         
     
