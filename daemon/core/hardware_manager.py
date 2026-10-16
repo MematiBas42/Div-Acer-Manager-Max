@@ -28,6 +28,7 @@ class HardwareManager:
         self.is_nos_active: bool = False
         self._pre_nos_profile: Optional[str] = None
         self._pre_nos_fan_speed: Optional[Tuple[int, int]] = None
+        self._last_known_profile: Optional[str] = None
 
     def refresh(self) -> None:
         """Re-probe hardware features and paths."""
@@ -139,7 +140,11 @@ class HardwareManager:
     # -------------------------------------------------------------------------
 
     def get_thermal_profile(self) -> str:
-        return self._read_file("/sys/firmware/acpi/platform_profile")
+        prof = self._read_file("/sys/firmware/acpi/platform_profile")
+        if prof:
+            self._last_known_profile = prof
+            return prof
+        return self._last_known_profile or ""
 
     def get_supported_profiles(self) -> List[str]:
         raw = self._read_file("/sys/firmware/acpi/platform_profile_choices")
@@ -152,14 +157,38 @@ class HardwareManager:
         if supported and profile not in supported:
             log.error(f"Unsupported thermal profile '{profile}'. Choices: {supported}")
             return False
-        return self._write_file("/sys/firmware/acpi/platform_profile", profile)
+        if self._write_file("/sys/firmware/acpi/platform_profile", profile):
+            self._last_known_profile = profile
+            return True
+        return False
 
-    def cycle_profile(self) -> Optional[str]:
-        """Cycle to the next available thermal profile."""
-        profiles = self.get_supported_profiles()
-        if not profiles:
+    def cycle_profile(self, is_ac: Optional[bool] = None) -> Optional[str]:
+        """Cycle to the next available thermal profile according to power source.
+        
+        AC: 3 steps (quiet -> balanced -> performance/balanced-performance)
+        Battery: 2 steps (low-power -> balanced)
+        Uses in-memory cache to guarantee deterministic consecutive cycling without sysfs race conditions.
+        """
+        all_supported = self.get_supported_profiles()
+        if not all_supported:
             return None
-        current = self.get_thermal_profile()
+
+        if is_ac is None:
+            from daemon.core.netlink_monitor import read_ac_online
+            is_ac = read_ac_online()
+
+        if is_ac:
+            perf_choice = "balanced-performance" if "balanced-performance" in all_supported else "performance"
+            target_order = ["quiet", "balanced", perf_choice]
+            profiles = [p for p in target_order if p in all_supported]
+        else:
+            target_order = ["low-power", "balanced"]
+            profiles = [p for p in target_order if p in all_supported]
+
+        if not profiles:
+            profiles = all_supported
+
+        current = self._last_known_profile or self.get_thermal_profile()
         try:
             idx = profiles.index(current)
             next_profile = profiles[(idx + 1) % len(profiles)]

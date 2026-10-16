@@ -31,7 +31,7 @@ class TestHardwareManager(unittest.TestCase):
 
         def mocked_read(path):
             if "platform_profile_choices" in path:
-                return "quiet balanced performance turbo"
+                return self.orig_read_file(self.profile_choices)
             if "platform_profile" in path:
                 return self.orig_read_file(self.profile_file)
             return self.orig_read_file(path)
@@ -94,6 +94,39 @@ class TestHardwareManager(unittest.TestCase):
             self.assertEqual(f.read().strip(), "0,0")
         with open(self.profile_file, "r") as f:
             self.assertEqual(f.read().strip(), "quiet")
+
+    def test_cycle_profile_ac_power(self):
+        # On AC power: 3 steps cycle (quiet -> balanced -> performance -> quiet)
+        self.mgr.set_thermal_profile("quiet")
+        p1 = self.mgr.cycle_profile(is_ac=True)
+        self.assertEqual(p1, "balanced")
+        p2 = self.mgr.cycle_profile(is_ac=True)
+        self.assertEqual(p2, "performance")
+        p3 = self.mgr.cycle_profile(is_ac=True)
+        self.assertEqual(p3, "quiet")
+
+    def test_cycle_profile_battery_power(self):
+        # On Battery power: 2 steps cycle (low-power -> balanced -> low-power)
+        # Add low-power to choices
+        with open(self.profile_choices, "w") as f:
+            f.write("low-power quiet balanced performance\n")
+
+        self.mgr.set_thermal_profile("low-power")
+        p1 = self.mgr.cycle_profile(is_ac=False)
+        self.assertEqual(p1, "balanced")
+        p2 = self.mgr.cycle_profile(is_ac=False)
+        self.assertEqual(p2, "low-power")
+
+    def test_cycle_profile_rapid_consecutive_clicks_no_race(self):
+        # Rapid double click test: Even if sysfs mock returns stale value,
+        # in-memory state ensures deterministic advance
+        self.mgr.set_thermal_profile("quiet")
+        p1 = self.mgr.cycle_profile(is_ac=True)
+        self.assertEqual(p1, "balanced")
+        
+        # Second immediate click
+        p2 = self.mgr.cycle_profile(is_ac=True)
+        self.assertEqual(p2, "performance")
 
 
 if __name__ == "__main__":

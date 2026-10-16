@@ -25,6 +25,13 @@ def read_ac_online(sysfs_root: str = "/sys") -> bool:
                     return True
         except Exception:
             continue
+
+    # If no AC adapter found, check if a battery exists.
+    # If no battery exists (e.g., VM, desktop or test environment), default to AC (True).
+    bat_candidates = glob.glob(os.path.join(sysfs_root, "class/power_supply/BAT*"))
+    if not bat_candidates:
+        return True
+
     return False
 
 
