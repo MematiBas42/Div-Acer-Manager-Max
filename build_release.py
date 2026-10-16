@@ -123,24 +123,25 @@ if [ -d "${SCRIPT_DIR}/gui" ]; then
     cp -rf "${SCRIPT_DIR}/gui" "${INSTALL_DIR}/"
     chmod +x "${INSTALL_DIR}/gui/DivAcerManagerMax" 2>/dev/null || true
     ln -sf "${INSTALL_DIR}/gui/DivAcerManagerMax" /usr/local/bin/acersense-gui || true
-    ln -sf "${INSTALL_DIR}/gui/DivAcerManagerMax" /usr/local/bin/damx-gui || true
-    ln -sf "${INSTALL_DIR}/gui/DivAcerManagerMax" /usr/local/bin/damx || true
+    ln -sf "${INSTALL_DIR}/gui/DivAcerManagerMax" /usr/local/bin/acersense || true
+    # Eski kalıntıları temizle
+    rm -f /usr/local/bin/damx /usr/local/bin/damx-gui 2>/dev/null || true
 fi
 if [ -d "${SCRIPT_DIR}/scripts" ]; then
     cp -rf "${SCRIPT_DIR}/scripts" "${INSTALL_DIR}/"
 fi
 
-# Masaüstü ikonu ve .desktop kaydı
+# Masaüstü ikonu ve .desktop kaydı (Eski damx kalıntıları temizlenir)
+rm -f "${DESKTOP_DIR}/damx.desktop" "${DESKTOP_DIR}/DAMX.desktop" "${ICON_DIR}/damx.png" 2>/dev/null || true
 if [ -f "${SCRIPT_DIR}/icon.png" ]; then
     mkdir -p "${ICON_DIR}"
     cp -f "${SCRIPT_DIR}/icon.png" "${ICON_DIR}/acersense.png"
-    cp -f "${SCRIPT_DIR}/icon.png" "${ICON_DIR}/damx.png"
 fi
 
 mkdir -p "${DESKTOP_DIR}"
 cat > "${DESKTOP_DIR}/acersense.desktop" << 'EOF'
 [Desktop Entry]
-Name=AcerSense (DAMX)
+Name=AcerSense
 Comment=Acer Predator & Nitro Hardware Control Center
 Exec=/opt/acersense/gui/DivAcerManagerMax
 Icon=acersense
@@ -149,7 +150,6 @@ Type=Application
 Categories=Utility;Settings;System;
 StartupNotify=true
 EOF
-cp -f "${DESKTOP_DIR}/acersense.desktop" "${DESKTOP_DIR}/damx.desktop"
 
 # Systemd servislerini bağla
 if [ -d "${SCRIPT_DIR}/systemd" ]; then

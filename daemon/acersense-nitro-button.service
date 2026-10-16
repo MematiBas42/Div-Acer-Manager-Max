@@ -6,6 +6,8 @@ Wants=acersense-daemon.service
 [Service]
 Type=simple
 User=root
+WorkingDirectory=/opt/acersense
+Environment=PYTHONPATH=/opt/acersense
 ExecStart=/usr/bin/python3 /opt/acersense/daemon/services/nitro_button.py
 Restart=always
 RestartSec=3

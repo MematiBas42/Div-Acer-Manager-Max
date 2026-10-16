@@ -3,6 +3,13 @@ Zero /tmp files, zero shell forks, single event-loop state machine.
 """
 
 import os
+import sys
+
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_DAEMON_ROOT = os.path.dirname(os.path.dirname(_CURRENT_DIR))
+if _DAEMON_ROOT not in sys.path:
+    sys.path.insert(0, _DAEMON_ROOT)
+
 import glob
 import time
 import struct
