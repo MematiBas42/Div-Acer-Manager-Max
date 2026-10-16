@@ -76,6 +76,11 @@ def package_daemon() -> None:
     if os.path.exists(post_qshell):
         shutil.copy2(post_qshell, os.path.join(scripts_out, "post_update_fixqshell.sh"))
 
+    # Copy application icon
+    icon_src = os.path.join(REPO_DIR, "DivAcerManagerMax", "icon.png")
+    if os.path.exists(icon_src):
+        shutil.copy2(icon_src, os.path.join(DIST_DIR, "icon.png"))
+
 def generate_installer() -> None:
     print("==> [4/4] Generating deployment installer...")
     installer_path = os.path.join(DIST_DIR, "install.sh")
@@ -89,7 +94,23 @@ fi
 
 INSTALL_DIR="/opt/acersense"
 SYSTEMD_DIR="/etc/systemd/system"
+DESKTOP_DIR="/usr/share/applications"
+ICON_DIR="/usr/share/icons/hicolor/256x256/apps"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+echo "==> Gerekli python modülleri kontrol ediliyor..."
+if ! python3 -c "import evdev" &>/dev/null; then
+    echo "==> evdev modülü kuruluyor..."
+    if command -v pacman &>/dev/null; then
+        pacman -S --noconfirm --needed python-evdev
+    elif command -v apt-get &>/dev/null; then
+        apt-get update -y && apt-get install -y python3-evdev
+    elif command -v dnf &>/dev/null; then
+        dnf install -y python3-evdev
+    else
+        python3 -m pip install --break-system-packages evdev || true
+    fi
+fi
 
 echo "==> AcerSense kurulumu yapılıyor: ${INSTALL_DIR}"
 systemctl stop acersense-nitro-button.service 2>/dev/null || true
@@ -108,6 +129,27 @@ fi
 if [ -d "${SCRIPT_DIR}/scripts" ]; then
     cp -rf "${SCRIPT_DIR}/scripts" "${INSTALL_DIR}/"
 fi
+
+# Masaüstü ikonu ve .desktop kaydı
+if [ -f "${SCRIPT_DIR}/icon.png" ]; then
+    mkdir -p "${ICON_DIR}"
+    cp -f "${SCRIPT_DIR}/icon.png" "${ICON_DIR}/acersense.png"
+    cp -f "${SCRIPT_DIR}/icon.png" "${ICON_DIR}/damx.png"
+fi
+
+mkdir -p "${DESKTOP_DIR}"
+cat > "${DESKTOP_DIR}/acersense.desktop" << 'EOF'
+[Desktop Entry]
+Name=AcerSense (DAMX)
+Comment=Acer Predator & Nitro Hardware Control Center
+Exec=/opt/acersense/gui/DivAcerManagerMax
+Icon=acersense
+Terminal=false
+Type=Application
+Categories=Utility;Settings;System;
+StartupNotify=true
+EOF
+cp -f "${DESKTOP_DIR}/acersense.desktop" "${DESKTOP_DIR}/damx.desktop"
 
 # Systemd servislerini bağla
 if [ -d "${SCRIPT_DIR}/systemd" ]; then
